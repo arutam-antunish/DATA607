@@ -1,0 +1,60 @@
+---
+title: "DATA607_Assignment1"
+author: "Arutam Antunish"
+date: "2025-08-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+```
+
+# INTRODUCTION
+The dataset that I chose is called "2025 Ballon dO'r Full Player Stats Data Set" and it can be found in this link: https://www.kaggle.com/datasets/farzammanafzadeh/2025-ballon-dor-full-player-stats-data-set?resource=download. This dataset gives us the total season statistics for 35 football players that might be nominated for the Ballon d’Or 2025. The stats were collected by the author only from the matches that happened during the Ballon d'Or eligibility period, which is from August 1, 2024 to July 31, 2025.
+
+I firstly upload the dataset into the Rmd document to start exploring it.
+
+```{r cars}
+summary(cars)
+url<- ("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/Player_Stats_All_Competitions.csv")
+ballond_2025 <- read.csv(url)
+glimpse(ballond_2025)
+summary(ballond_2025)
+```
+
+Then I selected only the variables that I was gonna analyze on this assignment, then I also filtered the names of the players so I only had the strikers since I wanted to explore the goals and assists stats. I also changed the names of the players to have only their last names. 
+
+```{r}
+ballond_2025 <- ballond_2025 %>% select(Player, Positions, Minutes.played, Goals, Assists, xG, xA)
+ballond_2025 <- ballond_2025 %>% filter(str_detect(Positions, "AMF|CF|CR|RW|LW|RWF|LWF"))
+ballond_2025 <- ballond_2025 %>% mutate(Player = word(Player, -1))
+ballond_2025 <- ballond_2025 %>% rename(Exp_Goals=xG, Exp_Assists=xA)
+```
+
+What I did with that information was to create the average of goals scored per match by each player. Then, I used a stacked bar chat to visualize who is the player with better statistics in this area. 
+
+```{r}
+ballond_2025 <- ballond_2025 %>% mutate(Matches= Minutes.played/90)
+ballond_2025 <- ballond_2025 %>% mutate(Goals_match= Goals/Matches)
+ballond_2025 %>%
+ arrange(desc(Goals_match))
+ballond_2025$highlight <- ifelse(ballond_2025$Player == "Kane", "Kane", "Others")
+ggplot(ballond_2025, aes(x=Goals_match, y=reorder(Player, +Goals_match), fill = highlight)) + geom_col() + scale_fill_manual(values = c("Kane" = "darkblue", "Others" = "gray")) + labs(title = "Goals average per match", x = "Goals per matches played", y = "Player")
+```
+
+Here I replicated the analyze but instead of using goals, I found the average of assists made per match and after it I used a plot to found who was the player with the best statistic in the season regarding assists. 
+
+```{r}
+ballond_2025 <- ballond_2025 %>% mutate(Assists_match= Assists/Matches)
+
+ballond_2025$highlight <- ifelse(ballond_2025$Player == "Salah", "Salah", "Others")
+ggplot(ballond_2025, aes(x=Assists_match, y=reorder(Player, +Assists_match), fill = highlight)) + geom_col() + scale_fill_manual(values = c("Salah" = "darkgreen", "Others" = "gray")) + labs(title = "Assists average per match", x = "Assists per matches played", y = "Player")
+```
+
+# CONCLUSIONS
+The analysis that I made here was superficial and short. I chose to only use a couple of players since I was going to use the goals and assists statistics. It means that we can not analyze the performance of a goalkeeper or defender based on how many goals they scored. Therefore, to make a better analysis and prediction we should firstly find a way to analyze the performance of each player depending on their position, and then make a comparison with others players performance to see who deserves this trophy based on the statistics. 
+
