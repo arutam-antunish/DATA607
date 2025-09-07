@@ -1,0 +1,155 @@
+---
+title: "DATA607_Assignment2A"
+author: "Arutam Antunish"
+date: "2025-09-07"
+output: html_document
+---
+# Introduction
+In this file I will expose the ratings of six popular movies that were released in the last years. The data was collected using digital survey software. The movies chosen for this assignment were 'Oppenheimer', 'The Fantastic Four: First Steps', 'The Super Mario Bros', 'Guardians of the Galaxy Vol.3', 'Deadpool & Wolverine' and 'Venom: The Last Dance'.
+
+### Data collection
+
+The data collected was processed and upload in tables for which purpose MySQL was used. Below is shown the code that I used in MySQL to create the tables: 
+
+```{r  eval = FALSE}
+CREATE TABLE Person (person_id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(25) NOT NULL);
+INSERT INTO Person (name) VALUES ('Yantse'), ('Thiago'), ('Namur'), ('Shiram'), ('Bruno');
+SELECT * FROM Person; 
+DELETE FROM Person WHERE person_id IS NULL;
+SELECT * FROM Person;
+DELETE FROM Person WHERE name IS NULL;
+SELECT * FROM Person;
+CREATE TABLE Movies (movie_id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(50) NOT NULL);
+SELECT * FROM Movies;
+INSERT INTO Movies (title) VALUES ('Oppenheimer'), ('The Fantastic Four: Firts Steps'), 
+('The Super Mario Bros'), ('Guardians of the Galaxy Vol.3'), 
+('Deadpool & Wolverine'), ('Venom: The Last Dance');
+SELECT * FROM Movies;
+CREATE TABLE Ratings (rating_id INT AUTO_INCREMENT PRIMARY KEY, person_id INT, movie_id INT, rating INT,
+FOREIGN KEY (person_id) REFERENCES Person(person_id), FOREIGN KEY (movie_id) REFERENCES Movies(movie_id));
+INSERT INTO Ratings (person_id, movie_id, rating) VALUES
+(1, 1, 5), (1, 2, 3), (1, 3, 4), (1, 4, 5), (1, 5, 4), (1, 6, NULL),
+(2, 1, 4), (2, 2, 2), (2, 3, NULL), (2, 4, 5), (2, 5, 5), (2, 6, 3),
+(3, 1, 5), (3, 2, 4), (3, 3, 5), (3, 4, NULL), (3, 5, 4), (3, 6, 4),
+(4, 1, 3), (4, 2, NULL), (4, 3, 4), (4, 4, 4), (4, 5, 2), (4, 6, 3),
+(5, 1, 4), (5, 2, 5), (5, 3, 4), (5, 4, 3), (5, 5, NULL), (5, 6, 5);
+SELECT * FROM Ratings;
+INSERT INTO Person (person_id, name) VALUES (6, 'Pasuk'), (7, 'Tsunki');
+SELECT * FROM Person;
+INSERT INTO Ratings (person_id, movie_id, rating) VALUES
+    (6, 1, 4),
+    (6, 2, 5),
+    (6, 3, 3),
+    (6, 4, 2),
+    (6, 5, 5),
+    (6, 6, 4);
+INSERT INTO Ratings (person_id, movie_id, rating) VALUES
+    (7, 1, 5),
+    (7, 2, 3),
+    (7, 3, 4),
+    (7, 4, 1),
+    (7, 5, 2),
+    (7, 6, 5);
+SELECT * FROM Ratings;
+```
+
+
+That data could be upload straight from MySQL as shown below but I chose to export the tables into .csv files and upload to github so it can be reproducible. 
+
+```{r conectar_mysql, eval = FALSE}
+
+install.packages("DBI")
+install.packages("RMariaDB")
+install.packages("dplyr")
+library(DBI)
+library(RMariaDB)
+library(dplyr)
+
+#connecting MySql tables
+
+con <- dbConnect(MariaDB(),
+                 user = "root",
+                 password = "my_password",
+                 dbname = "movie_ratings",
+                 host = "localhost",
+                 port = 3306)
+dbListTables(con)
+
+person <- dbReadTable(con, "person")
+movies  <- dbReadTable(con, "movies")
+ratings <- dbReadTable(con, "ratings")
+
+```
+
+### Reading and exploring tables
+
+In this section the tables were uploaded from my personal Github repository so it can be reproducible. After that, I used the join function to join the columns I was interested in. A new dataframe was created using that data. 
+
+```{r cars}
+
+person_r <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/person.csv", header = TRUE, sep = ";", stringsAsFactors = FALSE)
+movies_r <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/movies.csv", header = TRUE, sep = ";", stringsAsFactors = FALSE)
+ratings_r <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/ratings.csv", header = TRUE, sep = ";", stringsAsFactors = FALSE)
+
+library(dplyr)
+
+movie_rating <- ratings_r %>%
+  left_join(person_r, by = "person_id") %>%  
+  left_join(movies_r, by = "movie_id") %>% 
+  select(person_id, name, movie_id, title, rating)
+View(movie_rating)
+movie_rating$rating[movie_rating$rating == 0] <- NA
+View(movie_rating)
+```
+
+### Making operations and graphics
+
+In this point I tried to find out which was the rating average of each movie so we can see which was the most rated movie. 
+
+
+```{r}
+library(ggplot2)
+movie_avg <- movie_rating %>%
+  group_by(title) %>%
+  summarise(avg_rating = mean(rating, na.rm = TRUE))
+View(movie_avg)
+
+ggplot(movie_avg, aes(x = title, y = avg_rating)) +
+  geom_col(fill = "darkgreen", width = 0.6) +
+  labs(title = "Average rating per movie", x = "Movie", y = "Rating", subtitle = "Each movie was rated by seven persons", caption = "Source: Personal Survey") + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(margin = margin(b = 5)), plot.subtitle = element_text(margin = margin(b = 15)), plot.caption = element_text(margin = margin(t = 10)))
+
+```
+
+I replicated the same exercise here, but chose to find the average of rating that each person gaved to the movies to understand who gave best ratings. 
+
+```{r}
+person_avg <- movie_rating %>%
+  group_by(name) %>%
+  summarise(avg_rating = mean(rating, na.rm = TRUE))
+person_avg %>% arrange(desc(avg_rating))
+        
+View(person_avg)
+
+ggplot(person_avg, aes(x = name, y = avg_rating)) +
+  geom_col(fill = "darkblue", width = 0.6) +
+  labs(title = "Average rating per person", subtitle = "Each person rated six movies", caption = "Source: Personal Survey", x = "Person", y = "Rating") + theme_classic() + theme(plot.title = element_text(margin = margin(b = 5)), plot.subtitle = element_text(margin = margin(b = 15)), plot.caption = element_text(margin = margin(t = 10)))
+
+
+```
+
+
+
+Finally, I made a graphic where we can see the dispoersion of each rating per each movie to see the variation of the peoples ratings.
+
+
+```{r}
+
+ggplot(movie_rating, aes(x = title, y = rating)) +
+  geom_jitter(width = 0.2, height = 0, color = "darkred") +
+  labs(title = "Individual rating per movie", subtitle = "Each point represents a rating given by a person", caption = "Source: Personal Survey", x= "Movie", y = "Rating") + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(margin = margin(b = 5)), plot.subtitle = element_text(margin = margin(b = 25)), plot.caption = element_text(margin = margin(t = 10)))
+
+```
+
+# Conclusion
+
+The analysis that I made shows differences in how people evaluated the six selected movies. Some movies received higher ratings, while others had more varied opinions. Future analyses could explore trends over time or include a larger sample of respondents to enhance the reliability of insights.
