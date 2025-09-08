@@ -1,0 +1,153 @@
+---
+title: "DATA607_Assignment2B"
+author: "Arutam Antunish"
+date: "2025-09-07"
+output: html_document
+---
+
+# Introduction
+
+This work analyzes a dataset with predicted and actual genders. I calculated the null error rate, create confusion matrices for different thresholds, and compare accuracy, precision, recall, and F1 scores. The data that was used here was obtained from this source: https://github.com/acatlin/data/blob/master/penguin_predictions.csv. 
+
+## Uploading the data
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+penguins_data <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/penguin_predictions.csv")
+View(penguins_data)
+```
+
+## Exercise 1
+
+The null error rate is 0.41, meaning that if the model always predicted the majority class (male), it would still be wrong 41% of the time. Knowing this baseline is important because any model should perform better than this simple "always guess majority" strategy.
+
+```{r}
+table(penguins_data$sex)
+female <- 39
+male <- 54
+total_sex <- female+male
+null_error_rate <- 1-(male/total_sex)
+null_error_rate
+```
+### Graphic
+
+
+```{r}
+ggplot(penguins_data, aes(x = sex)) +
+  geom_bar(fill = "steelblue", width = 0.6) +
+  labs(
+    title = "Distribution of Actual Sex in the Dataset",
+    subtitle = "Shows how many observations belong to each class",
+    x = "Sex (actual class)",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, margin = margin(b = 20)),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11))
+
+```
+
+The null error rate is important because it shows how often the model would be wrong if it always chose the biggest group. In our data, the biggest group is male, so we compare the model to this.
+
+
+## Exercise 2
+
+
+```{r}
+penguins_data$pred_0.2 <- ifelse(penguins_data$.pred_female > 0.2, "female", "male")
+penguins_data$pred_0.5 <- ifelse(penguins_data$.pred_female > 0.5, "female", "male")
+penguins_data$pred_0.8 <- ifelse(penguins_data$.pred_female > 0.8, "female", "male")
+
+```
+
+### Threshhold of 0.2
+
+```{r}
+TP_0.2 <- sum(penguins_data$pred_0.2 == "female" & penguins_data$sex == "female")
+FP_0.2 <- sum(penguins_data$pred_0.2 == "female" & penguins_data$sex == "male")
+TN_0.2 <- sum(penguins_data$pred_0.2 == "male" & penguins_data$sex == "male")
+FN_0.2 <- sum(penguins_data$pred_0.2 == "male" & penguins_data$sex == "female")
+
+matrix(c(TP_0.2, FN_0.2, FP_0.2, TN_0.2), nrow = 2, byrow = TRUE,
+       dimnames = list("Actual" = c("Female","Male"),
+                       "Predicted" = c("Female","Male")))
+```
+### Threshhold of 0.5
+
+```{r}
+TP_0.5 <- sum(penguins_data$pred_0.5 == "female" & penguins_data$sex == "female")
+FP_0.5 <- sum(penguins_data$pred_0.5 == "female" & penguins_data$sex == "male")
+TN_0.5 <- sum(penguins_data$pred_0.5 == "male" & penguins_data$sex == "male")
+FN_0.5 <- sum(penguins_data$pred_0.5 == "male" & penguins_data$sex == "female")
+
+matrix(c(TP_0.5, FN_0.5, FP_0.5, TN_0.5), nrow = 2, byrow = TRUE,
+       dimnames = list("Actual" = c("Female","Male"),
+                       "Predicted" = c("Female","Male")))
+
+```
+
+### Threshhold of 0.8
+
+
+```{r}
+TP_0.8 <- sum(penguins_data$pred_0.8 == "female" & penguins_data$sex == "female")
+FP_0.8 <- sum(penguins_data$pred_0.8 == "female" & penguins_data$sex == "male")
+TN_0.8 <- sum(penguins_data$pred_0.8 == "male" & penguins_data$sex == "male")
+FN_0.8 <- sum(penguins_data$pred_0.8 == "male" & penguins_data$sex == "female")
+
+matrix(c(TP_0.8, FN_0.8, FP_0.8, TN_0.8), nrow = 2, byrow = TRUE,
+       dimnames = list("Actual" = c("Female","Male"),
+                       "Predicted" = c("Female","Male")))
+
+```
+
+## Exercise 3
+
+```{r}
+accuracy_0.2  <- (TP_0.2 + TN_0.2) / nrow(penguins_data)
+precision_0.2 <- TP_0.2 / (TP_0.2 + FP_0.2)
+recall_0.2    <- TP_0.2 / (TP_0.2 + FN_0.2)
+F1_0.2        <- 2 * (precision_0.2 * recall_0.2) / (precision_0.2 + recall_0.2)
+
+accuracy_0.5  <- (TP_0.5 + TN_0.5) / nrow(penguins_data)
+precision_0.5 <- TP_0.5 / (TP_0.5 + FP_0.5)
+recall_0.5    <- TP_0.5 / (TP_0.5 + FN_0.5)
+F1_0.5        <- 2 * (precision_0.5 * recall_0.5) / (precision_0.5 + recall_0.5)
+
+accuracy_0.8  <- (TP_0.8 + TN_0.8) / nrow(penguins_data)
+precision_0.8 <- TP_0.8 / (TP_0.8 + FP_0.8)
+recall_0.8    <- TP_0.8 / (TP_0.8 + FN_0.8)
+F1_0.8        <- 2 * (precision_0.8 * recall_0.8) / (precision_0.8 + recall_0.8)
+
+```
+
+### Data frame
+
+```{r}
+metrics_table <- data.frame(
+  Threshold = c(0.2, 0.5, 0.8),
+  Accuracy  = c(accuracy_0.2, accuracy_0.5, accuracy_0.8),
+  Precision = c(precision_0.2, precision_0.5, precision_0.8),
+  Recall    = c(recall_0.2, recall_0.5, recall_0.8),
+  F1_Score  = c(F1_0.2, F1_0.5, F1_0.8))
+
+```
+
+## Exercise 4
+
+Threshold 0.2:
+
+A low threshold of 0.2 is useful when we want to identify as many females as possible, even if some males are predicted incorrectly. For example, sending an important health message to all women, making sure we do not miss anyone.
+
+Threshold 0.8:
+
+A high threshold of 0.8 is useful when we want to be very confident before predicting female. For example, sending a premium personalized offer only to users who are very likely female, to avoid mistakes.
+
+# Conclusions
+
+The results of this analysis shows us how changing thresholds affects predictions. Lower thresholds get more positives but increase errors, and higher thresholds reduce errors but miss some cases. Future analysis could test more thresholds or use other models.
