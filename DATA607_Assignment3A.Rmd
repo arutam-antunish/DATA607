@@ -1,0 +1,65 @@
+---
+title: "DATA607_Assignment3A"
+author: "Arutam Antunish"
+date: "2025-09-13"
+output: html_document
+---
+# Introduction
+In this assignment a Global Baseline Estimate recommender was used to predict user ratings for movies. The data used in this project was imported from my Github Repository. We calculated the global mean, movie and user biases, and used them to estimate missing ratings for some movies. 
+
+```{r}
+library(readr)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+```
+
+## Importing the data
+
+The data that we used was collected and used in the past in another assignment. But in this case it was needed to create a single dataframe in MySQL with the same information. I also made sure to use the right separators so it could be read efficiently in R. After that, we uploaded the dataframe so it can be reproducible. That data was upload in R as shown below. 
+
+```{r}
+movie_ratings <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/movie_ratings_long.csv")
+View(movie_ratings)
+movie_ratings[movie_ratings == "NULL"] <- NA
+View(movie_ratings)
+```
+
+Here I calculated the global mean for the ratings of all the movies.
+
+```{r}
+movie_ratings$rating <- as.numeric(movie_ratings$rating)
+mu <- mean(movie_ratings$rating, na.rm = TRUE)
+```
+
+After that, I got the movie bias by subtracting the global mean from the mean of each movie.
+
+```{r}
+movie_bias <- movie_ratings %>%
+  group_by(movie_id) %>%
+  summarize(bi = mean(rating, na.rm = TRUE) - mu)
+```
+
+Here I made the same exercise for the user bias. 
+
+```{r}
+user_bias <- movie_ratings %>%
+  group_by(person_id) %>%
+  summarize(bu = mean(rating, na.rm = TRUE) - mu)
+```
+
+Then, I created another data frame where I added the movie and user bias. Finally, I calculated the global base estimate adding the global mean plus the movie and user bias. With this function we found a prediction for the movies that did not have a rating. 
+
+```{r}
+ratings_gbe <- movie_ratings %>%
+  left_join(movie_bias, by = "movie_id") %>%
+  left_join(user_bias, by = "person_id") 
+
+ratings_gbe <- ratings_gbe %>% mutate(gbe = mu + bi + bu)
+```
+
+# Conclusion
+
+As a conclusion, apart of calculating the predictions, I noticed that future improvements could include regularizing biases for movies or users with few ratings, validating predictions using a test set and making the system scalable for larger data sets.
