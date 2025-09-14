@@ -1,0 +1,43 @@
+person_id,user_name,movie_id,movie_title,rating
+1,Yantse,1,Oppenheimer,5
+2,Thiago,1,Oppenheimer,4
+3,Namur,1,Oppenheimer,5
+4,Shiram,1,Oppenheimer,3
+5,Bruno,1,Oppenheimer,4
+6,Pasuk,1,Oppenheimer,4
+7,Tsunki,1,Oppenheimer,5
+1,Yantse,2,"The Fantastic Four: Firts Steps",3
+2,Thiago,2,"The Fantastic Four: Firts Steps",2
+3,Namur,2,"The Fantastic Four: Firts Steps",4
+4,Shiram,2,"The Fantastic Four: Firts Steps",NULL
+5,Bruno,2,"The Fantastic Four: Firts Steps",5
+6,Pasuk,2,"The Fantastic Four: Firts Steps",5
+7,Tsunki,2,"The Fantastic Four: Firts Steps",3
+1,Yantse,3,"The Super Mario Bros",4
+2,Thiago,3,"The Super Mario Bros",NULL
+3,Namur,3,"The Super Mario Bros",5
+4,Shiram,3,"The Super Mario Bros",4
+5,Bruno,3,"The Super Mario Bros",4
+6,Pasuk,3,"The Super Mario Bros",3
+7,Tsunki,3,"The Super Mario Bros",4
+1,Yantse,4,"Guardians of the Galaxy Vol.3",5
+2,Thiago,4,"Guardians of the Galaxy Vol.3",5
+3,Namur,4,"Guardians of the Galaxy Vol.3",NULL
+4,Shiram,4,"Guardians of the Galaxy Vol.3",4
+5,Bruno,4,"Guardians of the Galaxy Vol.3",3
+6,Pasuk,4,"Guardians of the Galaxy Vol.3",2
+7,Tsunki,4,"Guardians of the Galaxy Vol.3",1
+1,Yantse,5,"Deadpool & Wolverine",4
+2,Thiago,5,"Deadpool & Wolverine",5
+3,Namur,5,"Deadpool & Wolverine",4
+4,Shiram,5,"Deadpool & Wolverine",2
+5,Bruno,5,"Deadpool & Wolverine",NULL
+6,Pasuk,5,"Deadpool & Wolverine",5
+7,Tsunki,5,"Deadpool & Wolverine",2
+1,Yantse,6,"Venom: The Last Dance",NULL
+2,Thiago,6,"Venom: The Last Dance",3
+3,Namur,6,"Venom: The Last Dance",4
+4,Shiram,6,"Venom: The Last Dance",3
+5,Bruno,6,"Venom: The Last Dance",5
+6,Pasuk,6,"Venom: The Last Dance",4
+7,Tsunki,6,"Venom: The Last Dance",5
