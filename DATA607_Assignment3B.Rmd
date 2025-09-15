@@ -1,0 +1,147 @@
+---
+title: "DATA607_Assignment3B"
+author: "Arutam Antunish"
+date: "2025-09-14"
+output: html_document
+---
+
+# Introduction
+The dataset that I chose to work with was a historical collection of some cryptocurrencies values and it can be found in these links: "https://www.kaggle.com/datasets/imranbukhari/comprehensive-ethusd-1h-data?utm_source=chatgpt.com&select=ETHUSD_1h_Binance.csv" y "https://www.kaggle.com/datasets/sudalairajkumar/cryptocurrencypricehistory". This data set gives us the historical data from multiple exchanges, covering the entire trading history of the some cryptocurrencies.  
+
+I firstly upload the data set into my Github Repository and then into the Rmd document to start exploring it.
+
+### Ethereum
+
+```{r}
+
+install.packages("slider", repos = "https://cloud.r-project.org/")
+library(dplyr)
+library(slider)
+library(ggplot2)
+
+eth_historic <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/ETHUSD_1h_Binance.csv")
+View(eth_historic)
+
+eth_clean <- eth_historic %>% select(Open.time, Close)
+
+View(eth_clean)
+
+eth_clean <- eth_clean %>%
+  mutate(date = as.Date(Open.time))
+```
+
+
+```{r}
+
+eth_daily <- eth_clean %>% group_by(date) %>% slice_tail(n = 1) %>% ungroup() %>% select(date, Close) %>% arrange(date)
+
+eth_daily <- eth_daily %>%
+  arrange(date) %>%
+  mutate(year = format(date, "%Y"))
+
+eth_daily <- eth_daily %>%
+  group_by(year) %>%  
+  arrange(date) %>% 
+  mutate(ytd_avg = cummean(Close)) %>%
+  ungroup()
+
+eth_daily <- eth_daily %>% mutate(Close = as.numeric(Close)) %>% arrange(date)
+
+eth_daily <- eth_daily %>% mutate(date = as.Date(date))
+
+eth_daily <- eth_daily %>% mutate(ma6 = slide_dbl(Close, ~ mean(.x, na.rm = TRUE), .before = 5, .complete = TRUE))
+
+
+```
+
+
+
+```{r}
+
+ggplot(eth_daily, aes(x = date)) +
+geom_line(aes(y = Close, color = "Close Price"), size = 0.8) +
+geom_line(aes(y = ytd_avg, color = "YTD Average"), size = 1) +
+geom_line(aes(y = ma6, color = "6-Day MA"), size = 1) + scale_color_manual(values = c("Close Price" = "blue", "YTD Average" = "red", "6-Day MA" = "green")) + labs(title = "Ethereum Close Price vs YTD Average and 6-Day MA", x = "Date", y = "Price", color = "Legend") + theme_classic()
+```
+
+
+
+### Bitcoin
+
+
+```{r}
+btc <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/coin_Bitcoin.csv")
+View(btc)
+
+btc_clean <- btc %>% select(Date, Close)
+View(btc_clean)
+btc_clean <- btc_clean %>%
+  mutate(date = as.Date(Date))
+
+btc_clean <- btc_clean %>%
+  arrange(date) %>%
+  mutate(year = format(date, "%Y"))
+
+btc_clean <- btc_clean %>%
+  group_by(year) %>%  
+  arrange(date) %>% 
+  mutate(ytd_avg = cummean(Close)) %>%
+  ungroup()
+
+btc_clean <- btc_clean %>% mutate(Close = as.numeric(Close)) %>% arrange(date)
+
+btc_clean <- btc_clean %>% mutate(date = as.Date(date))
+
+btc_clean <- btc_clean %>% mutate(ma6 = slide_dbl(Close, ~ mean(.x, na.rm = TRUE), .before = 5, .complete = TRUE))
+
+```
+
+```{r}
+ggplot(btc_clean, aes(x = date)) +
+geom_line(aes(y = Close, color = "Close Price"), size = 0.8) +
+geom_line(aes(y = ytd_avg, color = "YTD Average"), size = 1) +
+geom_line(aes(y = ma6, color = "6-Day MA"), size = 1) + scale_color_manual(values = c("Close Price" = "blue", "YTD Average" = "red", "6-Day MA" = "green")) + labs(title = "Bitcoin Close Price vs YTD Average and 6-Day MA", x = "Date", y = "Price", color = "Legend") + theme_classic()
+```
+
+### Dogecoin
+
+```{r}
+
+doge <- read.csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/coin_Dogecoin.csv")
+View(doge)
+
+doge_clean <- doge %>% select(Date, Close)
+View(doge_clean)
+doge_clean <- doge_clean %>% mutate(date = as.Date(Date))
+
+doge_clean <- doge_clean %>%
+arrange(date) %>%
+mutate(year = format(date, "%Y"))
+
+doge_clean <- doge_clean %>%
+group_by(year) %>%  
+arrange(date) %>% 
+mutate(ytd_avg = cummean(Close)) %>%
+ungroup()
+
+doge_clean <- doge_clean %>% mutate(Close = as.numeric(Close)) %>% arrange(date)
+
+doge_clean <- doge_clean %>% mutate(date = as.Date(date))
+
+
+doge_clean <- doge_clean %>% mutate(ma6 = slide_dbl(Close, ~ mean(.x, na.rm = TRUE), .before = 5, .complete = TRUE))
+
+```
+
+
+```{r}
+ggplot(doge_clean, aes(x = date)) +
+geom_line(aes(y = Close, color = "Close Price"), size = 0.8) +
+geom_line(aes(y = ytd_avg, color = "YTD Average"), size = 1) +
+geom_line(aes(y = ma6, color = "6-Day MA"), size = 1) + scale_color_manual(values = c("Close Price" = "blue", "YTD Average" = "red", "6-Day MA" = "green")) + labs(title = "Dogecoine Close Price vs YTD Average and 6-Day MA", x = "Date", y = "Price", color = "Legend") + theme_classic()
+
+```
+
+# Conclusion
+
+In conclusion, I calculated the Year-to-Date average and the 6-day moving average for Ethereum, Bitcoin and Dogecoin using clean daily price data. The YTD shows the overall trend of the year, while the MA6 highlights recent price changes. Next steps would be to replicate this analysis for other cryptocurrencies and compare their trends.
