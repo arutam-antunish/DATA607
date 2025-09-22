@@ -1,0 +1,158 @@
+---
+title: "Project 1"
+author: "Arutam Antunish"
+date: "2025-09-18"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Introduction
+
+In this project, we worked with a text file containing chess tournament results. The goal was to create a CSV file that summarizes each player's information, including their name, state, total points, pre-tournament rating, and the average pre-tournament rating of their opponents. The final CSV can be used for further analysis or imported into a database.
+
+## Loading packages 
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(readr)
+library(dplyr)
+```
+
+## Reading the Data
+
+First, we read the text file from a GitHub repository which can be found in this link: "https://github.com/arutam-antunish/DATA607/blob/main/tournamentinfo.txt". We cleaned the data by removing header lines, separators, and empty lines to keep only the lines with player information.
+
+```{r}
+tournament_raw_url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/tournamentinfo.txt"
+
+tournament_lines <- read_lines(tournament_raw_url)
+view(tournament_lines)
+
+```
+
+
+```{r}
+tournament_lines <- tournament_lines[!str_detect(tournament_lines, "^\\s*(Pair|Num)")]
+tournament_lines <- tournament_lines[!str_detect(tournament_lines, "^-{3,}")]
+tournament_lines <- tournament_lines[str_trim(tournament_lines) != ""]
+
+```
+
+## Separating Main and Detail Rows
+
+The data had two types of rows: main rows with the player name, total points, and round results, and detail rows with the player's state and ratings. We separated these two types of rows and prepared them for further processing.
+
+```{r}
+is_main <- str_detect(tournament_lines, "^\\s*\\d+")
+main_lines <- tournament_lines[is_main]
+detail_lines <- tournament_lines[!is_main]
+
+```
+
+
+```{r}
+main_df <- str_split_fixed(main_lines, "\\|", 10) %>% as.data.frame(stringsAsFactors = FALSE)
+detail_df <- str_split_fixed(detail_lines, "\\|", 10) %>% as.data.frame(stringsAsFactors = FALSE)
+
+```
+
+
+```{r}
+main_df <- main_df %>% mutate_all(str_squish)
+detail_df <- detail_df %>% mutate_all(str_squish)
+colnames(main_df) <- paste0("V", 1:10)
+colnames(detail_df) <- paste0("V", 1:10)
+```
+
+## Creating the Players Table
+
+We split each row into columns using the '|' symbol. Then, we combined the main rows with the detail rows to create a table with all relevant information for each player.
+
+```{r}
+players <- main_df %>%
+mutate(Player_State = detail_df$V1, Player_Detail = detail_df$V2, Player_Name = V2, Total_Points = as.numeric(V3), R1_raw = V4, R2_raw = V5, R3_raw = V6, R4_raw = V7, R5_raw = V8, R6_raw = V9, R7_raw = V10, Pre_Rating = as.numeric(str_extract(Player_Detail, "(?<=R: )\\d+")))
+```
+
+## Extracting Ratings and Opponents
+
+We extracted each player's pre-tournament rating and the numbers of their opponents from each round. Then, we reshaped the data to have a long format for opponents and joined it with the pre-ratings to calculate the average rating of opponents for each player.
+
+```{r}
+players <- players %>% mutate(opp1 = as.numeric(str_extract(R1_raw, "\\d+")),
+opp2 = as.numeric(str_extract(R2_raw, "\\d+")),
+opp3 = as.numeric(str_extract(R3_raw, "\\d+")),
+opp4 = as.numeric(str_extract(R4_raw, "\\d+")),
+opp5 = as.numeric(str_extract(R5_raw, "\\d+")),
+opp6 = as.numeric(str_extract(R6_raw, "\\d+")),
+opp7 = as.numeric(str_extract(R7_raw, "\\d+")))
+```
+
+
+```{r}
+opp_long <- players %>% select(Player_Name, Pre_Rating, opp1:opp7) %>% pivot_longer(cols = starts_with("opp"), values_to = "opp_pair", names_to = "round") %>% filter(!is.na(opp_pair))
+```
+
+
+
+```{r}
+
+rating_lookup <- players %>% mutate(Pair = 1:n()) %>% select(Pair, Pre_Rating)
+
+opp_long <- players %>% mutate(Pair = 1:n()) %>% select(Pair, Player_Name, opp1:opp7) %>% pivot_longer(cols = starts_with("opp"), names_to = "round", values_to = "opp_pair") %>% filter(!is.na(opp_pair))
+```
+
+
+```{r}
+opp_long <- opp_long %>% left_join(rating_lookup, by = c("opp_pair" = "Pair")) %>% rename(Opp_Pre_Rating = Pre_Rating)
+View(opp_long)
+```
+
+
+```{r}
+avg_opp <- opp_long %>% group_by(Player_Name) %>%
+summarize(Avg_Opponents_Pre_Rating = mean(Opp_Pre_Rating, na.rm = TRUE), .groups = "drop")
+View(avg_opp)
+```
+
+## Generating the Final CSV
+
+Finally, we created a summary table with the player's name, state, total points, pre-rating, and average rating of opponents. We saved this table as a CSV file.
+
+```{r}
+players_tournament <- players %>% select(Player_Name, Player_State, Total_Points, Pre_Rating) %>% left_join(avg_opp, by = "Player_Name")
+View(players_tournament)
+```
+
+
+```{r}
+write_csv(players_tournament, "players_tournament.csv")
+
+```
+
+## Visualizing the data
+
+### Distribution of Total Points
+
+This histogram shows how the total points of all players are distributed. Each bar represents the number of players that achieved a certain total score in the tournament. It helps us see which scores are most common and how the players performed overall.
+
+```{r}
+ggplot(players_tournament, aes(x = Total_Points)) +
+geom_histogram(binwidth = 0.5, fill = "darkblue") +
+theme_classic() + labs(title = "Distribution of Total Points", x = "Total Points", y = "Number of Players")
+```
+
+### Player Rating vs Average Opponents' Rating
+
+This scatter plot compares each player's pre-tournament rating with the average rating of their opponents. Each point represents one player. This graph helps us understand whether stronger players faced stronger opponents on average, and if there is any relationship between a player's rating and the difficulty of their matches.
+
+```{r}
+ggplot(players_tournament, aes(x = Pre_Rating, y = Avg_Opponents_Pre_Rating)) +
+geom_point(color = "darkred") + theme_classic() +
+labs(title = "Player Rating vs Average Opponents' Rating", x = "Pre-Rating", y = "Avg Opponents Pre-Rating")
+```
+
+
+# Conclusion
+
+We successfully transformed a text file with chess tournament results into a structured CSV file. This CSV contains useful information for analysis, such as total points and ratings. In the future, we could use this data to create visualizations, explore patterns in player performance, or compare ratings between states or rounds.
