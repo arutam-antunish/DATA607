@@ -1,0 +1,173 @@
+---
+title: "DATA607_Assignmment5A"
+author: "Arutam Antunish"
+date: "2025-09-27"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+```
+
+#Introduction
+The goal of this project is to analyze airline arrival delays using a small dataset with two airlines and five U.S. cities.  
+The analysis follows several steps: creating a CSV file with the original data, importing it into R, tidying and transforming the data, and performing comparisons.  
+
+## 1. Create Data File
+
+First, I created a wide format dataframe in R using the information given in the chart.\
+This structure matches the original chart, with airlines in rows and cities in columns.
+
+Then, I exported the dataframe to a `.csv` file named airlines_delays.csv.\
+This file was later be re-imported into R from my Github repository.
+
+```{r}
+airlines_data <- data.frame(
+Airline = c("ALASKA", "ALASKA", "AMWEST", "AMWEST"),
+Status = c("on time", "delayed", "on time", "delayed"),
+LosAngeles = c(497, 62, 694, 117),
+Phoenix = c(221, 12, 4840, 415),
+SanDiego = c(212, 20, 383, 65),
+SanFrancisco = c(503, 102, 320, 129),
+Seattle = c(1841, 305, 201, 61))
+
+write.csv(airlines_data, "airlines_delays.csv", row.names = FALSE)
+
+
+```
+
+## 2. Import Data into R
+
+I uploaded the CSV file to my GitHub repository and used the raw file link to import it into R.\
+This ensures the data is stored in a accessible location. The imported dataframe has the same wide structure as the original chart, which will later be transformed and tidied.
+
+```{r}
+url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/airlines_delays.csv"
+airlines_data <- read.csv(url)
+View(airlines_data)
+```
+
+## 3. Tidy and Transform Data
+
+I converted the wide table into a tidy long-format table so each row represents one city-status-airline observation.\
+I checked for missing values and provided a simple strategy to populate them (replace with 0) or keep them as `NA`, depending on interpretation.
+
+```{r}
+
+glimpse(airlines_data)
+View(airlines_data)
+
+airlines_data[airlines_data == ""] <- NA
+
+# Show any missing values per column
+sapply(airlines_data, function(x) sum(is.na(x)))
+
+# Populate missing values (two strategies)
+airlines_data_zero <- airlines_data %>%
+mutate(across(LosAngeles:Seattle, ~replace_na(as.numeric(.), 0)))
+
+
+airlines_data_na <- airlines_data %>%
+mutate(across(LosAngeles:Seattle, ~as.numeric(.)))
+
+# Transform from wide to long format
+airlines_long <- airlines_data_na %>%
+pivot_longer(cols = LosAngeles:Seattle,
+names_to = "City", values_to = "Count")
+
+# Quick view of the long data
+glimpse(airlines_long)
+View(airlines_long)
+
+```
+
+
+## 4. Overall Comparison of Airlines
+
+I first calculated the total number of flights (on time and delayed) for each airline. Then, I transformed these counts into percentages so that we can compare performance fairly.
+
+The bar chart shows the percentage of flights delayed vs on time for both airlines overall.  
+This makes it clear that AMWEST has a much higher percentage of delayed flights compared to ALASKA.
+
+```{r}
+# Overall totals per Airline and Status
+overall_summary <- airlines_long %>%
+group_by(Airline, Status) %>%
+summarise(Total = sum(Count, na.rm = TRUE)) %>%
+ungroup()
+
+View(overall_summary)
+
+# Calculate percentages (delayed vs on time)
+overall_percent <- overall_summary %>%
+group_by(Airline) %>%
+mutate(Percent = round(100 * Total / sum(Total), 2))
+
+View(overall_percent)
+
+# Bar chart comparison
+
+ggplot(overall_percent, aes(x = Airline, y = Percent, fill = Status)) +
+geom_col(position = "dodge") + theme_classic() + labs(title = "Overall Arrival Status by Airline",
+x = "Airline",
+y = "Percentage of Flights")
+```
+
+
+
+- ALASKA: The majority of flights were on time, with a small percentage delayed.  
+- AMWEST: While it had a large number of flights, the percentage of delays was much higher than ALASKA.  
+- Overall, ALASKA performs better in terms of punctuality compared to AMWEST.
+
+## 5. City-by-City Comparison
+
+I calculated the total number of flights (on time and delayed) for each city and airline. Then, I transformed these totals into percentages so that the results are comparable.  
+
+The table shows the percentage of delays by city and airline.  
+The chart (with faceted panels) makes it clear how performance changes depending on the destination.
+
+```{r}
+# City by City totals and percentages
+city_summary <- airlines_long %>%
+group_by(Airline, City, Status) %>%
+summarise(Total = sum(Count, na.rm = TRUE), .groups = "drop")
+View(city_summary)
+
+# Calculate percentages within each airline+city
+city_percent <- city_summary %>%
+group_by(Airline, City) %>%
+mutate(Percent = round(100 * Total / sum(Total), 2)) %>%
+ungroup()
+
+View(city_percent)
+
+# Bar chart per city
+
+ggplot(city_percent, aes(x = City, y = Percent, fill = Status)) +
+geom_col(position = "dodge") + theme_classic() + facet_wrap(~Airline) + labs(title = "Arrival Status by Airline and City",
+x = "City", y = "Percentage of Flights") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+- ALASKA: In most cities, the percentage of on time flights was high. Seattle had the largest number of flights but still showed strong on time performance.
+- AMWEST: In Phoenix, although it had many flights, the delay percentage was higher than ALASKA. In other cities, delays were also consistently higher than ALASKA.  
+- Overall, the city-level analysis confirms that ALASKA outperforms AMWEST across all destinations, although the size of the difference varies by city.
+
+## 6. Discrepancy Analysis
+When we compare the two airlines overall, we see that ALASKA has a lower percentage of delays than AMWEST. This makes ALASKA look clearly better.  
+
+However, when we compare city by city, the picture is more nuanced.  
+In every city ALASKA still performs better, but the size of the difference changes. For example, in Phoenix the difference between the two airlines is very large, while in San Diego it is smaller.  
+
+This discrepancy happens because overall comparisons are influenced by the number of flights in each city.  
+AMWEST has many flights in Phoenix, and Phoenix also has a high delay percentage. This makes AMWEST look worse overall, even though the difference in some smaller cities is not as big.  
+
+In other words, the overall result is shaped by both performance and the distribution of flights across cities.
+
+# Conclusion
+
+In conclusion, ALASKA performed better than AMWEST both overall and in every city analyzed.  
+The discrepancy between overall and city by city results highlights the importance of looking at both levels: overall gives a big picture, while city level analysis reveals more details about where the differences are larger or smaller.
