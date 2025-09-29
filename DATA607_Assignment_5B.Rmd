@@ -1,0 +1,204 @@
+---
+title: "DATA607_Assignment5B"
+author: "Arutam Antunish"
+date: "2025-09-28"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(stringr)
+library(dplyr)
+
+```
+
+# Introduction
+
+In this project, we analyzed the results of a chess tournament using ELO ratings. We calculated each player’s expected score based on their initial ratings and the ratings of their opponents. Then, we compared the expected score with the actual points each player scored. This helps us see who performed better or worse than expected.
+
+## 1: Read and parse tournament text
+
+We read the raw tournament text file from GitHub and parsed each player line to extract:Player name, Pre-rating, Total points, Round tokens.
+
+
+```{r}
+
+url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/main/tournamentinfo.txt"
+lines <- read_lines(url)
+lines <- lines[str_trim(lines) != ""]  
+
+player_lines <- grep("^\\s*[0-9]+\\s*\\|", lines)
+
+```
+
+## 2: Extracting Player Information
+
+We will extract: Player Name, Rating, Total Points, and Results per round. We want each player in one row.
+
+```{r}
+player_lines <- grep("^\\s*[0-9]+\\s*\\|", lines)
+player_lines[1:10]
+
+idx <- player_lines[1]
+
+line <- lines[player_lines[1]]
+parts <- str_split(line, "\\|")[[1]]
+parts <- str_trim(parts)
+
+num <- as.numeric(parts[1])
+name <- parts[2]
+total <- as.numeric(parts[3])
+r1_text <- if (length(parts) >= 4) parts[4] else NA
+
+round_texts <- sapply(4:10, function(j) if (length(parts) >= j) parts[j] else NA)
+round_results <- sapply(round_texts, function(x) if (!is.na(x) && nchar(x)>0) str_sub(x,1,1) else NA)
+round_opps <- sapply(round_texts, function(x) as.numeric(str_extract(x, "\\d+")))
+round_results
+round_opps
+
+row <- data.frame(num = num,
+name = as.character(name), total = total, R1_result = round_results[1], R1_opp = round_opps[1], R2_result = round_results[2], R2_opp = round_opps[2], R3_result = round_results[3], R3_opp = round_opps[3], R4_result = round_results[4], R4_opp = round_opps[4], R5_result = round_results[5], R5_opp = round_opps[5], R6_result = round_results[6], R6_opp = round_opps[6], R7_result = round_results[7], R7_opp = round_opps[7], stringsAsFactors = FALSE)
+View(row)
+
+rows <- list()
+for (k in seq_along(player_lines)) {
+line <- lines[player_lines[k]]
+parts <- str_trim(str_split(line, "\\|")[[1]])
+num <- as.numeric(parts[1])
+name <- parts[2]
+total <- as.numeric(parts[3])
+round_texts <- sapply(4:10, function(j) if (length(parts) >= j) parts[j] else NA)
+round_results <- sapply(round_texts, function(x) if (!is.na(x) && nchar(x)>0) str_sub(x,1,1) else NA)
+round_opps <- sapply(round_texts, function(x) as.numeric(str_extract(x, "\\d+")))
+rows[[k]] <- data.frame(
+num = num, name = as.character(name), total = total,
+R1_result = round_results[1], R1_opp = round_opps[1],
+R2_result = round_results[2], R2_opp = round_opps[2],
+R3_result = round_results[3], R3_opp = round_opps[3],
+R4_result = round_results[4], R4_opp = round_opps[4],
+R5_result = round_results[5], R5_opp = round_opps[5],
+R6_result = round_results[6], R6_opp = round_opps[6],
+R7_result = round_results[7], R7_opp = round_opps[7],
+stringsAsFactors = FALSE)}
+
+df_players <- bind_rows(rows)
+nrow(df_players)
+View(df_players)
+
+```
+
+
+## 3: Calculating Expected Scores (ELO)
+
+For each parsed player row we read the next line in the file. to extract the pre-tournament rating. Then create a lookup so we can find any opponent's rating by their player number.
+
+
+```{r}
+
+n <- nrow(df_players)
+rating_pre <- rep(NA_real_, n)
+
+for (k in 1:n) {idx_next <- player_lines[k] + 1
+if (idx_next <= length(lines)) {text_next <- lines[idx_next]
+val <- str_extract(text_next, "(?<=R:\\s)\\d+")
+if (!is.na(val)) rating_pre[k] <- as.numeric(val)}}
+
+df_players$rating_pre <- rating_pre
+df_players[, c("num","name","rating_pre")][1:12, ]
+```
+
+## 4: Compute expected scores and actual points
+
+We used the ELO expected-score formula E = 1 / (1 + 10^((Rb - Ra)/400)). For every player and each round: (a) compute expected points vs opponent rating if available, (b) compute actual points from W/D/L/H. Sum across rounds to get expected_total and actual_total_calc.
+
+```{r}
+
+expected_one <- function(ra, rb) {1 / (1 + 10 ^ ((rb - ra) / 400))}
+
+df_players$expected_total <- 0
+df_players$actual_total_calc <- 0
+
+
+rating_by_num <- setNames(df_players$rating_pre, as.character(df_players$num))
+
+for (i in 1:nrow(df_players)) {
+my_rating <- df_players$rating_pre[i]
+exp_sum <- 0
+act_sum <- 0
+  
+for (r in 1:7) {
+opp_col <- paste0("R", r, "_opp")
+res_col <- paste0("R", r, "_result")
+opp_num <- df_players[i, opp_col]
+res <- df_players[i, res_col]
+    
+
+if (is.na(res)) {actual_point <- NA} 
+else if (res == "W") {actual_point <- 1} 
+else if (res == "D") {actual_point <- 0.5} 
+else if (res == "L") {actual_point <- 0} 
+else if (res == "H") {actual_point <- 0.5} 
+else {actual_point <- NA}
+    
+    
+exp_point <- NA
+if (!is.na(opp_num) && as.character(opp_num) %in% names(rating_by_num) && !is.na(my_rating)) {
+opp_rating <- as.numeric(rating_by_num[as.character(opp_num)])
+if (!is.na(opp_rating)) exp_point <- expected_one(my_rating, opp_rating)} 
+else {if (!is.na(res) && res == "H") exp_point <- 0.5}
+    
+if (!is.na(exp_point)) exp_sum <- exp_sum + exp_point
+if (!is.na(actual_point)) act_sum <- act_sum + actual_point}
+  
+df_players$expected_total[i] <- exp_sum
+df_players$actual_total_calc[i] <- act_sum}
+
+
+View(df_players)
+```
+
+
+## 5: Difference and top lists
+
+Check that the computed actual totals match the total column from the file (small differences expected). Then compute diff_expected = actual_total(file) - expected_total and list the top 5 overperformers and top 5 underperformers.
+
+```{r}
+
+inconsistent <- df_players[!is.na(df_players$total) & !is.na(df_players$actual_total_calc) & abs(df_players$total - df_players$actual_total_calc) > 0.01, ]
+nrow(inconsistent)
+View(inconsistent)
+
+if (nrow(inconsistent) > 0) print(inconsistent[, c("num","name","total","actual_total_calc","expected_total")])
+
+# Difference and top lists
+df_players$diff_expected <- df_players$total - df_players$expected_total
+
+# order descending for over performers
+ord_desc <- order(-df_players$diff_expected)
+top5_over <- df_players[ord_desc[1:5], c("num","name","total","expected_total","diff_expected")]
+
+# order ascending for under performers
+ord_asc <- order(df_players$diff_expected)
+top5_under <- df_players[ord_asc[1:5], c("num","name","total","expected_total","diff_expected")]
+
+View(top5_over)
+View(top5_under)
+
+# Results table
+results_table <- df_players[order(-df_players$diff_expected), c("num","name","rating_pre","total","expected_total","diff_expected")]
+View(results_table)
+```
+
+## Findings and source
+
+The ELO-based expected score helps identify players who significantly outperformed or underperformed relative to their ratings. This shows which players improved unexpectedly or struggled in the tournament.
+
+ELO Formula Source:
+We used the standard ELO expected score formula which can be found in the next link:
+
+
+(Source: https://www.youtube.com/watch?v=AsYfbmp0To0)
+
+# Conclusions
+
+By comparing actual scores to expected scores, we identified the players who overperformed and underperformed in the tournament. This analysis shows which players exceeded expectations and which players struggled. Using the ELO formula gives a fair way to measure performance relative to skill levels.
