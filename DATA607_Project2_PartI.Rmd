@@ -1,0 +1,180 @@
+---
+title: "DATA607 Project2 Part I"
+author: "Arutam Antunish"
+date: "2025-10-01"
+output: html_document
+---
+
+# Introduction
+
+For this section, I selected a Travel Expense Report table that lists daily costs for meals, hotels, and transport by city. The original dataset was extracted from a scanned image and manually reconstructed in R. It is considered untidy because it mixes raw data with subtotals and totals, uses section headers like “San Jose” and “Seattle” instead of a proper Location column, and stores dates as row labels rather than structured variables.
+
+
+## Untidy data
+
+The original table was manually transcribed into R using tribble() from the tibble package to preserve its visual structure. This includes section headers, daily entries, and subtotal/total rows. Missing values are represented with NA.
+
+```{r}
+library(tibble)
+travel_expense <- tribble(
+  ~Location,      ~Meals,   ~Hotels,  ~Transport, ~Subtotals,
+  "San Jose",     NA,       NA,       NA,        NA,
+  "25-Aug-97",    37.74,    112.00,   45.00,     NA,
+  "26-Aug-97",    27.28,    112.00,   45.00,     NA,
+  "subtotals",    65.02,    224.00,   90.00,     379.02,
+  "Seattle",      NA,       NA,       NA,        NA,
+  "27-Aug-97",    96.25,    109.00,   36.00,     NA,
+  "28-Aug-97",    35.00,    109.00,   36.00,     NA,
+  "subtotals",    131.25,   218.00,   72.00,     421.25,
+  "Totals",       196.27,   442.00,   162.00,    800.27)
+
+View(travel_expense)
+```
+
+### Creating the csv file
+
+The dataset is saved as a .csv file so the raw data is stored externally and later imported for analysis. This file will be uploaded to GitHub for reproducibility and remote access.
+
+```{r}
+
+write.csv(travel_expense, "DATA607_Project2_travel_expense.csv", row.names = FALSE)
+
+```
+
+## Read the CSV into R
+
+The CSV file is read directly from the GitHub repository using read_csv() from the readr package. 
+
+```{r}
+library(readr)
+
+travel_raw <- read_csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/DATA607_Project2_travel_expense.csv")
+
+View(travel_raw)
+```
+
+## Tidying the data  frame
+
+First, we cleaned the raw data by adding a City column based on section headers, removing subtotal and total rows, and converting dates and amounts into proper formats.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+
+# Adding a City column based on section headers
+travel_clean <- travel_raw %>%
+mutate(City = case_when(Location == "San Jose" ~ "San Jose",
+Location == "Seattle" ~ "Seattle", TRUE ~ NA_character_)) %>% fill(City)
+
+
+travel_clean <- travel_clean %>%
+filter(!Location %in% c("San Jose", "Seattle", "subtotals", "Totals"))
+
+# Renaming and convert columns
+travel_clean <- travel_clean %>%
+rename(Date = Location) %>%
+mutate(Date = dmy(Date), Meals = as.numeric(Meals),
+Hotels = as.numeric(Hotels), Transport = as.numeric(Transport))
+
+```
+
+
+After cleaning the data, we changed it from wide to long format using pivot_longer(). This makes each expense its own row, which helps us analyze and visualize the data more easily by city, date, or category.
+
+
+```{r}
+travel_tidy <- travel_clean %>%
+pivot_longer(cols = c(Meals, Hotels, Transport), names_to = "Category",
+values_to = "Amount")
+
+travel_tidy <- travel_tidy %>% select(-Subtotals)
+
+View(travel_tidy)
+
+```
+
+## Analysis
+
+With the data now tidy, we can explore spending patterns by city and category. We'll calculate total and average expenses, and visualize the distribution of costs.
+
+### Totals by city and Category
+```{r}
+summary_by_city_category <- travel_tidy %>%
+group_by(City, Category) %>%
+summarise(Total = sum(Amount, na.rm = TRUE), Average = mean(Amount, na.rm = TRUE), .groups = "drop")
+
+View(summary_by_city_category)
+
+```
+
+This bar plot shows total expenses by category for each city. It highlights which types of costs were most significant in San Jose vs. Seattle.
+
+```{r}
+library(ggplot2)
+
+ggplot(travel_tidy, aes(x = Category, y = Amount, fill = City)) +
+geom_bar(stat = "summary", fun = "sum", position = "dodge") +
+labs(title = "Total Travel Expenses by Category and City",
+x = "Expense Category", y = "Total Amount") + theme_classic()
+```
+
+### Average Expenses by city
+
+We calculated the average daily expense per entry for each city. This gives a general idea of how costly each location was during the trip.
+
+```{r}
+avg_by_city <- travel_tidy %>% group_by(City) %>%
+summarise(Average_Expense = mean(Amount, na.rm = TRUE))
+
+View(avg_by_city)
+```
+
+### Spending comparison between categories
+
+This summary shows which expense categories (Meals, Hotels, Transport) accounted for the largest share of total spending.
+
+```{r}
+total_by_category <- travel_tidy %>%
+group_by(Category) %>%
+summarise(Total_Spent = sum(Amount, na.rm = TRUE))
+
+View(total_by_category)
+
+```
+
+
+### Daily Cost Trends
+
+We aggregated expenses by date to observe how total travel costs varied from day to day. This helps identify any spikes or patterns in spending.
+
+```{r}
+daily_total <- travel_tidy %>%
+group_by(Date) %>%
+summarise(Daily_Total = sum(Amount, na.rm = TRUE))
+
+View(daily_total)
+```
+
+This line plot shows how total travel costs changed day by day. It reveals spending peaks and patterns across the trip.
+
+```{r}
+ggplot(daily_total, aes(x = Date, y = Daily_Total)) +
+geom_line(color = "darkblue", linewidth = 1.2) +
+geom_point(color = "darkred", size = 3) +
+labs(title = "Daily Total Travel Costs",
+x = "Date", y = "Total Cost") +
+theme_classic()
+
+```
+
+### Findings
+
+- Average daily expenses were slightly higher in Seattle than in San Jose.
+- Hotels were the largest expense category overall, followed by Meals and Transport.
+- Spending peaked on August 27th, likely due to higher meal costs in Seattle.
+- The distribution of costs was consistent across days, with no extreme outliers.
+
+## Conclusions
+
+In the first part of this Project we cleaned the dataset by adding a city column, removing subtotal and total rows, and converting dates and amounts to proper formats. Then we reshaped the data from wide to long format to make analysis easier. Finally, we analyzed average expenses by city, compared spending across categories, and tracked daily travel costs using summary tables and visualizations.
