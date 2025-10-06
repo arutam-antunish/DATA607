@@ -1,0 +1,176 @@
+---
+title: "DATA 607 Project 2 Part 3"
+author: "Arutam Antunish"
+date: "2025-10-04"
+output: html_document
+---
+
+## Introduction
+
+For this section, I selected the Human Development Index (HDI) dataset from 1990 to 2022, sourced from the worldhdi repository. The data includes HDI values for countries and regions worldwide over time. The goal is to explore trends in human development, identify countries with the greatest improvements, and compare regional progress across Africa, Asia, and Latin America. It can be found in this link: https://zenodo.org/records/14006889?utm_source=chatgpt.com. 
+
+## Untidy data
+
+We opened the r file with the data in R Studio, after that we created a csv file from this data set which was in R fortmat. We made it so we can upload it to Github. 
+
+```{r, include=FALSE}
+#View(worldhdi)
+#write.csv(worldhdi, "world_hdi.csv", row.names = FALSE)
+
+```
+
+## Read the csv from Github
+
+We read the dataset directly from GitHub using read_csv(). This ensures reproducibility.
+
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+
+hdi_raw <- read_csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/world_hdi.csv")
+
+View(hdi_raw)
+```
+
+## Data Cleaning and Transformation
+
+We filtered out rows with missing country, HDI, or region values, and ensured that Year and HDI are numeric. We did additional cleaning steps to ensure consistency across country and region names, removed rows with missing HDI or year values, and eliminated any duplicate entries. 
+
+```{r}
+
+
+
+hdi_tidy <- hdi_raw %>%
+pivot_longer(
+cols = matches("^hdi_\\d{4}$"),
+names_to = "Year",
+names_prefix = "hdi_",
+values_to = "HDI") %>%
+mutate(Year = as.integer(Year),
+HDI = as.numeric(HDI),
+Country = str_trim(country)) %>%
+filter(!is.na(HDI))
+
+View(hdi_tidy)
+
+
+```
+
+We finalized the cleaning process by removing duplicate rows, filtering out entries without ISO country codes, and keeping only valid HDI values between 0 and 1. These steps ensure the dataset is consistent, reliable, and ready for analysis.
+
+```{r}
+hdi_tidy <- hdi_tidy %>%
+distinct() %>% 
+filter(HDI >= 0 & HDI <= 1)
+
+View(hdi_tidy)
+```
+
+We removed unnecessary columns related to average HDI growth, which are not needed for our analysis. We also resolved a duplicate column issue by keeping only one standardized country column. Finally, we filtered out invalid HDI values and removed duplicate rows.
+
+```{r}
+hdi_tidy <- hdi_tidy %>%
+select(-starts_with("avg_growth_")) %>%
+select(-Country) %>% select(-rank_change_2015_2022) %>%     distinct() %>%      
+filter(HDI >= 0 & HDI <= 1)  
+
+View(hdi_tidy)
+```
+
+## Analysis
+
+### Countries with the Greatest HDI Improvement (1990–2022)
+
+We selected the top 10 countries with the greatest HDI improvement between 1990 and 2022 and visualized them using a horizontal bar chart. This highlights which nations have made the most progress in human development over the past three decades.
+
+```{r}
+hdi_change <- hdi_tidy %>%
+filter(Year %in% c(1990, 2022)) %>%
+pivot_wider(names_from = Year, values_from = HDI, names_prefix = "hdi_") %>%
+mutate(hdi_change = hdi_2022 - hdi_1990) %>%
+arrange(desc(hdi_change))
+
+View(hdi_change)
+
+top10_hdi_change <- hdi_change %>% slice_max(hdi_change, n = 10)
+
+ggplot(top10_hdi_change, aes(x = reorder(country, hdi_change), y = hdi_change)) +
+geom_col(fill = "#2E86AB") +
+coord_flip() +
+labs(title = "Top 10 Countries by HDI Improvement (1990–2022)",
+x = "Country", y = "HDI Change") +
+theme_classic()
+
+```
+
+### Regional Comparison of HDI in 2022
+
+The chart displays the average HDI in 2022 across three selected regions: Africa, Asia, and Latin America. Each bar represents the mean HDI of countries manually grouped by region, allowing a visual comparison of development levels.
+
+```{r}
+hdi_regions <- hdi_tidy %>%
+filter(Year == 2022) %>%
+mutate(region = case_when(country %in% c("Nigeria", "Kenya", "South Africa", "Ethiopia", "Rwanda") ~ "Africa",
+country %in% c("India", "China", "Indonesia", "Vietnam", "Philippines") ~ "Asia",
+country %in% c("Brazil", "Mexico", "Argentina", "Colombia", "Chile") ~ "Latin America", TRUE ~ NA_character_)) %>%
+filter(!is.na(region))
+
+
+region_summary <- hdi_regions %>%
+group_by(region) %>%
+summarise(avg_hdi = mean(HDI, na.rm = TRUE))
+
+ggplot(region_summary, aes(x = region, y = avg_hdi, fill = region)) +
+geom_col() + labs(title = "Average HDI by Region (2022)",
+x = "Region", y = "Average HDI") +
+theme_classic()
+
+```
+### Global HDI Distribution by Country in 2022
+
+We joined HDI data for 2022 to a spatial map of countries using ISO3 codes. The resulting choropleth map uses color intensity to represent HDI levels, allowing a clear visual comparison of global development.
+
+```{r}
+install.packages(c("rnaturalearth", "rnaturalearthdata", "sf"), repos = "https://cloud.r-project.org")
+
+```
+
+
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(ggplot2)
+library(dplyr)
+
+
+hdi_2022 <- hdi_tidy %>%
+filter(Year == 2022)
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+
+world_hdi <- world %>% left_join(hdi_2022, by = c("iso_a3" = "iso3c"))
+
+ggplot(world_hdi) +
+geom_sf(aes(fill = HDI), color = "gray70", size = 0.1) +
+scale_fill_viridis_c(option = "C", na.value = "white") +
+labs(title = "Human Development Index (HDI) by Country - 2022",
+fill = "HDI") + theme_classic()
+
+```
+
+### Findings
+
+- Countries like China, Myanmar and Bangladesh had the largest HDI increases from 1990 to 2022.
+- In 2022, Latin America had the highest average HDI among selected regions, followed by Asia and then Africa.
+- The 2022 HDI map shows clear geographic differences, with higher HDI in Europe and North America and lower HDI in parts of Africa and Asia.
+
+## Conclusion
+
+This project explored global human development trends using HDI data from 1990 to 2022. Through targeted cleaning and structured analysis, we identified countries with the greatest HDI improvement, compared regional averages, and visualized global disparities on a map. 
