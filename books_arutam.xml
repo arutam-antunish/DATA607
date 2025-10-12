@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<books>
+  <book>
+    <title>OpenIntro Statistics</title>
+    <authors>
+      <author>David M. Diez</author>
+      <author>Christopher D. Barr</author>
+      <author>Mine Çetinkaya-Rundel</author>
+    </authors>
+    <year>2019</year>
+    <extra>Edition: 4th</extra>
+  </book>
+  <book>
+    <title>R for Data Science</title>
+    <authors>
+      <author>Hadley Wickham</author>
+      <author>Garrett Grolemund</author>
+    </authors>
+    <year>2017</year>
+    <extra>Publisher: O'Reilly</extra>
+  </book>
+  <book>
+    <title>Sapiens: A Brief History of Humankind</title>
+    <authors>
+      <author>Yuval Noah Harari</author>
+    </authors>
+    <year>2015</year>
+    <extra>Genre: Non-fiction</extra>
+  </book>
+</books>
