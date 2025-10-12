@@ -1,0 +1,139 @@
+---
+title: "Assignment 7 - Creating and loading html, xml and json files"
+author: "Arutam Antunish"
+date: "2025-10-11"
+output: html_document
+---
+
+
+# Introduction
+
+This assignment helps us practice working with HTML, XML, and JSON file formats.  
+We manually created three files with book information and loaded them into R.  
+We compare the results and explain the differences.
+
+## Books selection
+
+We chose three books from different subjects:
+
+- *OpenIntro Statistics* (Statistics and Programming for Data Science)
+- *R for Data Science* (Data Acquisition and Management)
+- *Sapiens: A Brief History of Humankind* (Anthropology)
+
+Each book includes title, authors, and two extra attributes.
+
+## Creating the files manually
+
+We created three files by hand:
+
+- `books.html`: HTML table
+- `books.xml`: XML structure
+- `books.json`: JSON structure
+
+Each file stores the same book data.
+
+## Loading the files into R
+
+We use R packages to read each file: rvest for HTML, xml2 for XML and jsonlite for JSON
+
+Each file is loaded into a separate data frame.
+
+```{r}
+#Loading the packages 
+library(rvest)
+library(xml2)
+library(jsonlite)
+
+```
+
+
+### HTML 
+```{r}
+
+html_url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/books_arutam.html"
+html_data <- read_html(html_url)
+books_html <- html_data %>% html_table(fill = TRUE) %>% .[[1]]
+print(books_html)
+
+```
+
+### XML
+
+```{r}
+xml_url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/books_arutam.xml"
+xml_data <- read_xml(xml_url)
+book_nodes <- xml_find_all(xml_data, "//book")
+
+books_xml <- data.frame(
+title = xml_text(xml_find_all(book_nodes, "title")), authors = sapply(book_nodes, function(book) {paste(xml_text(xml_find_all(book, "author")), collapse = ", ")}),
+year = c(2019, 2017, 2015),
+extra = c("Edition: 4th", "Publisher: O'Reilly", "Genre: Non-fiction"))
+print(books_xml)
+
+```
+
+### JSON
+
+```{r}
+
+
+json_url <- "https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/books_arutam.json"
+books_json <- fromJSON(json_url)
+
+books_json_df <- data.frame(
+  title = books_json$title,
+  authors = sapply(books_json$authors, function(x) paste(x, collapse = ", ")),
+  year = books_json$year,
+  extra = books_json$extra)
+
+
+print(books_json_df)
+
+```
+
+
+## Comparing the Data Frames
+
+We compare the three data frames to check if they are identical.  
+We use `identical()` and `all.equal()` functions.  
+We also print the data frames to see the structure.
+
+```{r}
+identical(books_html, books_xml)
+identical(books_html, books_json_df)
+identical(books_xml, books_json_df)
+
+all.equal(books_html, books_xml)
+all.equal(books_html, books_json_df)
+all.equal(books_xml, books_json_df)
+
+str(books_html)
+str(books_xml)
+str(books_json_df)
+```
+### Findings
+
+The three data frames are not identical, but they are very similar. All of them have the same columns: title, authors, year, and extra.  
+The differences are mostly in:
+
+- Column order
+- Data types (character vs factor)
+- Minor formatting differences
+
+These do not affect the meaning of the data.
+
+# Conclusion
+
+This assignment helped us understand how HTML, XML, and JSON store data.  
+We manually created files with book information and loaded them into R.  
+Each format required different tools and steps to extract the data.
+
+We learned that:
+
+- HTML tables are easy to read with rvest
+- XML files need more navigation with xml2
+- JSON files are flexible but may need flattening with jsonlite
+
+Even though the formats are different, the final data frames are very similar.  
+
+
