@@ -1,0 +1,87 @@
+---
+title: "=Data607 Assignment 9: Using APIs"
+author: "Arutam Antunish"
+date: "2025-10-27"
+output: html_document
+---
+
+# Introduction
+
+This script demonstrates how to access and process data from the New York Times Top Stories API using the httr2 package in R. 
+The goal is to retrieve JSON content from a selected section, transform it into a tidy DataFrame, and prepare it for analysis or export.
+
+## Install and load packages
+
+Load the necessary tools for making HTTP requests and handling JSON data.
+
+```{r}
+
+# Load libraries
+library(httr2)
+library(jsonlite)
+library(dplyr)
+library(tibble)
+library(purrr)
+
+
+```
+
+## Authentication: Loading the API Key
+
+Retrieve your API key to authenticate requests to the NYT API.
+
+```{r}
+# Loading the API key from .Renviron
+api_key <- Sys.getenv("NYT_API_KEY")
+
+```
+
+## Building and sending the API call
+
+We built the URL dynamically and sent the request to the NYT server.
+
+```{r}
+# Choosing a section
+section <- "science"
+
+# Constructing the request
+req <- request(paste0("https://api.nytimes.com/svc/topstories/v2/", section, ".json")) |>
+  req_url_query("api-key" = api_key)
+
+# Send the request
+resp <- req_perform(req)
+
+# Check response status
+resp_status(resp)
+
+```
+## Extracting and parsing JSON
+
+Parse the JSON response and convert it into a structured R DataFrame.
+
+```{r}
+# Extract JSON content from the response
+json_data <- resp_body_json(resp)
+
+# Convert the list of articles to a DataFrame
+
+nyt_df <- map_dfr(json_data$results, function(article) {
+  tibble(
+    title = article$title %||% NA,
+    abstract = article$abstract %||% NA,
+    url = article$url %||% NA,
+    byline = article$byline %||% NA,
+    published_date = article$published_date %||% NA,
+    section = article$section %||% NA
+  )
+})
+
+# Preview the result
+head(nyt_df)
+View(nyt_df)
+```
+
+
+# Conclusion
+
+This script successfully connects to the New York Times Top Stories API, retrieves JSON data, and transforms it into a tidy R DataFrame. The result is a clean dataset containing article metadata such as title, abstract, author, and publication date. This workflow can be adapted to other NYT APIs or extended with visualizations, text analysis, or interactive dashboards.
