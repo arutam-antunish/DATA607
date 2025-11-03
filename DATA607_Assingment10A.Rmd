@@ -1,0 +1,153 @@
+---
+title: "Data 607 Assingmment 10A"
+author: "Arutam Antunish"
+date: "2025-11-02"
+output: html_document
+---
+
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+install.packages("tidytext")
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+library(janeaustenr)
+library(stringr)
+library(tidyr)
+
+```
+
+# Introduction
+
+This document reproduces and extends the main example from Chapter 2 of Text Mining with R by Julia Silge and David Robinson. The goal is to perform sentiment analysis using tidy text principles and explore emotional trends in text data.
+Citation: Silge, J., & Robinson, D. (2017). Text Mining with R: A Tidy Approach. O’Reilly Media. Chapter 2
+
+## Preparing the original corpus
+
+We begin by tokenizing Jane Austen’s novels into individual words, adding line numbers and chapter markers for later analysis.
+
+```{r}
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]", ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+```
+
+## Sentiment Analysis with NRC Lexicon (Joy words)
+
+This section identifies the most frequent words associated with the emotion “joy” in Emma using the NRC lexicon.
+
+```{r}
+
+install.packages("textdata")
+library(textdata)
+
+
+nrc_joy <- get_sentiments("nrc") %>% filter(sentiment == "joy")
+
+joy_words <- tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+```
+
+## Sentiment over time with bing Lexicon
+
+We visualize the emotional trajectory of each novel by calculating net sentiment in chunks of 80 lines.
+
+```{r}
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+
+### Comparing three Lexicons: AFINN, Bing and NRC
+
+This section compares sentiment scores across three different lexicons to highlight differences in how each interprets emotional tone.
+
+```{r}
+pride_prejudice <- tidy_books %>% filter(book == "Pride & Prejudice")
+
+afinn <- pride_prejudice %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(index = linenumber %/% 80) %>%
+  summarise(sentiment = sum(value)) %>%
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  pride_prejudice %>%
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing"),
+  pride_prejudice %>%
+    inner_join(get_sentiments("nrc") %>% filter(sentiment %in% c("positive", "negative"))) %>%
+    mutate(method = "NRC")
+) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+bind_rows(afinn, bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+## Extension: Extension: IMDB Movie Reviews + Vader Lexicon
+
+To extend the Chapter 2 example, we apply sentiment analysis to a new corpus: AG News, a collection of news headlines categorized into four topics (World, Sports, Business, Sci/Tech). We also incorporate a new sentiment lexicon: Loughran.  
+
+```{r}
+
+# Load AG News dataset
+ag_news <- dataset_ag_news()
+
+ag_news <- ag_news %>%
+  rename(label = class)
+
+# Tokenize headlines
+tidy_news <- ag_news %>%
+  unnest_tokens(word, title) %>%
+  filter(!is.na(word))
+```
+
+### Applying LoughranLexicon
+
+```{r}
+# Load Loughran sentiment lexicon
+loughran <- get_sentiments("loughran")
+
+# Join and count sentiment words by category
+loughran_sentiment <- tidy_news %>%
+  inner_join(loughran, by = "word") %>%
+  count(label, sentiment) %>%
+  group_by(label, sentiment) %>%
+  summarise(total = sum(n)) %>%
+  ungroup()
+```
+
+### Visualize sentiment distribution
+
+
+```{r}
+ggplot(loughran_sentiment, aes(x = label, y = total, fill = sentiment)) +
+  geom_col(position = "dodge") +
+  labs(title = "Sentiment Distribution by News Category (Loughran Lexicon)",
+       x = "News Category",
+       y = "Word Count",
+       fill = "Sentiment")
+
+```
+
+
+# Conclusion
+
+This project explored sentiment analysis using tidytext tools in R. We began with classic lexicons like Bing and NRC applied to literary texts, and extended the analysis by introducing new corpora and lexicons. In the final section, we used the AG News dataset with the Loughran lexicon to examine how sentiment varies across news categories. Overall, the project demonstrated how sentiment analysis can adapt to different domains, from literature to journalism, with reproducible and interpretable results.
