@@ -1,0 +1,273 @@
+---
+title: "Assignmment 10B"
+author: "Arutam Antunish"
+date: "2025-11-06"
+output: html_document
+---
+
+```{r}
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+```
+
+# Introduction
+
+This assignment focuses on extracting and analyzing JSON data from the Nobel Prize API. The goal is to practice working with structured web data by formulating and answering four original questions using R.
+
+The API provides detailed information about laureates, their affiliations, and the prizes they received.
+
+## Part 1: Nobel Laureate Migrations
+
+Question: Which country has the highest number of Nobel laureates born there but awarded under a different citizenship?
+
+We use the Nobel Prize API to retrieve laureate data and filter cases where the birth country differs from the award citizenship. The results are grouped by birth country to identify the most affected nations.
+
+```{r}
+# Load required libraries
+library(purrr)
+
+# Step 1: Load laureates in batches of 500 (up to 2000 total)
+laureates_all <- map_dfr(seq(0, 1500, by = 500), function(offset) {
+  url <- paste0("https://api.nobelprize.org/2.1/laureates?limit=500&offset=", offset)
+  res <- GET(url)
+  data <- fromJSON(content(res, "text"), flatten = TRUE)
+  data$laureates
+})
+
+# Step 2: Build a data frame of birth country vs. affiliation country
+migration_records <- map_dfr(1:nrow(laureates_all), function(i) {
+  person <- laureates_all[i, ]
+  birth_country <- person$birth.place.country.en
+  prizes <- person$nobelPrizes[[1]]
+  
+  if (is.null(prizes) || is.na(birth_country)) return(NULL)
+  
+  map_dfr(1:nrow(prizes), function(j) {
+    affils <- prizes$affiliations[[j]]
+    if (is.null(affils) || nrow(affils) == 0) return(NULL)
+    
+    map_dfr(1:nrow(affils), function(k) {
+      tibble(
+        name = person$fullName.en,
+        birth_country = birth_country,
+        award_country = affils$country.en[k])})})})
+
+# Step 3: Filter mismatches and count by birth country
+migration_summary <- migration_records %>%
+  filter(!is.na(birth_country), !is.na(award_country), birth_country != award_country) %>%
+  count(birth_country, sort = TRUE)
+
+# Step 4: Show top 10 countries with most "lost" laureates
+head(migration_summary, 10)
+
+library(ggplot2)
+
+# Step 4: Plot the top 10 birth countries with laureates awarded under a different citizenship
+
+migration_summary %>%
+  slice_max(n, n = 10) %>%
+  ggplot(aes(x = reorder(birth_country, n), y = n)) +
+  geom_col(fill = "gray40") +
+  geom_text(aes(label = n), hjust = -0.2, color = "black", size = 4) +
+  coord_flip() +
+  labs(
+    title = "Top 10 Countries with Migrated Nobel Laureates",
+    subtitle = "Born in one country, awarded under another",
+    x = "Country of Birth",
+    y = "Number of Laureates",
+    caption = "Source: Nobel Prize API"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    plot.title = element_text(color = "black", face = "bold"),
+    plot.subtitle = element_text(color = "black"),
+    plot.caption = element_text(color = "gray40"))
+```
+
+
+## Part 2: Gender and Nobel Categories
+
+Question: How are Nobel Prizes distributed by gender across different prize categories?
+
+We use the Nobel Prize API to extract gender and category information for each laureate, then group and visualize the data to highlight patterns across disciplines.
+
+```{r}
+# Step 1: Extract gender and prize category from laureates
+gender_category_df <- map_dfr(1:nrow(laureates_all), function(i) {
+  person <- laureates_all[i, ]
+  gender <- person$gender
+  prizes <- person$nobelPrizes[[1]]
+  
+  if (is.null(prizes) || is.na(gender)) return(NULL)
+  
+  map_dfr(1:nrow(prizes), function(j) {
+    tibble(
+      gender = gender,
+      category = prizes$category.en[j]
+    )
+  })
+})
+
+# Step 2: Clean and count
+gender_summary <- gender_category_df %>%
+  filter(!is.na(gender), !is.na(category)) %>%
+  count(category, gender) %>%
+  group_by(category) %>%
+  mutate(percentage = round(100 * n / sum(n), 1)) %>%
+  ungroup()
+
+
+# Step 3: Plot gender distribution by category
+
+ggplot(gender_summary, aes(x = category, y = n, fill = gender)) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_text(aes(label = n),
+            position = position_dodge(width = 0.7),
+            vjust = -0.5, size = 3.5, color = "black") +
+  scale_fill_manual(
+    values = c("female" = "#9e77b0", "male" = "#779ecb"),
+    labels = c("Female", "Male")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Nobel Prizes by Gender and Category",
+    subtitle = "Distribution of laureates by gender across prize categories",
+    x = "Prize Category",
+    y = "Number of Laureates",
+    fill = "Gender",
+    caption = "Source: Nobel Prize API"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(margin = margin(b = 15)),
+    plot.caption = element_text(color = "gray40"))
+```
+
+
+## Part 3: Prize Amounts and Adjustments
+
+Question: How have Nobel Prize amounts changed over time, and how do inflation-adjusted values compare?
+
+This section explores the evolution of Nobel Prize monetary awards. We extract both the original prize amount (`prizeAmount`) and the inflation-adjusted value (`prizeAmountAdjusted`) for each award year. By visualizing these trends, we can assess the real value of the prize across decades and understand economic shifts in its purchasing power.
+
+```{r}
+# Step 1: Extract award year, original amount, and adjusted amount
+prize_amounts_df <- map_dfr(1:nrow(laureates_all), function(i) {
+  prizes <- laureates_all$nobelPrizes[[i]]
+  if (is.null(prizes)) return(NULL)
+  
+  map_dfr(1:nrow(prizes), function(j) {
+    tibble(
+      year = as.integer(prizes$awardYear[j]),
+      amount = prizes$prizeAmount[j],
+      adjusted = prizes$prizeAmountAdjusted[j]
+    )})})
+
+# Step 2: Clean and summarize by year
+prize_summary <- prize_amounts_df %>%
+  filter(!is.na(year), !is.na(amount), !is.na(adjusted)) %>%
+  group_by(year) %>%
+  summarise(
+    total_amount = sum(amount),
+    total_adjusted = sum(adjusted),
+    .groups = "drop")
+
+# Step 3: Visualization
+
+ggplot(prize_summary, aes(x = year)) +
+  geom_line(aes(y = total_amount, color = "Original Amount"), size = 1.2) +
+  geom_point(aes(y = total_amount, color = "Original Amount"), size = 2) +
+  geom_line(aes(y = total_adjusted, color = "Adjusted Amount"), size = 1.2) +
+  geom_point(aes(y = total_adjusted, color = "Adjusted Amount"), size = 2) +
+  scale_color_manual(
+    values = c("Original Amount" = "gray50", "Adjusted Amount" = "#1f78b4")
+  ) +
+  labs(
+    title = "Evolution of Nobel Prize Amounts",
+    subtitle = "Original vs Inflation-Adjusted Total Awards per Year",
+    x = "Award Year",
+    y = "Total Prize Amount (SEK)",
+    color = "Legend",
+    caption = "Source: Nobel Prize API"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(margin = margin(b = 15)),
+    plot.caption = element_text(color = "gray40")
+  )
+```
+
+## Part 4: Shared Prizes
+
+Question: How often are Nobel Prizes shared among multiple laureates?
+
+This section explores the distribution of Nobel Prizes by the number of recipients per award. Some prizes are awarded to a single individual, while others are shared between two or three laureates. Understanding this distribution helps us see how collaborative or individualistic the Nobel recognition tends to be.
+
+```{r}
+
+# Step 1: Extract synthetic prize key (year + category)
+prize_shares_df <- map_dfr(1:nrow(laureates_all), function(i) {
+  person <- laureates_all[i, ]
+  prizes <- person$nobelPrizes[[1]]
+  if (is.null(prizes)) return(NULL)
+  
+  map_dfr(1:nrow(prizes), function(j) {
+    tibble(
+      prize_key = paste0(prizes$awardYear[j], "_", prizes$category.en[j])
+    )})})
+
+# Step 2: Count number of laureates per prize
+prize_counts <- prize_shares_df %>%
+  count(prize_key, name = "laureates_per_prize") %>%
+  count(laureates_per_prize, name = "n_prizes")
+
+# Step 3: Visualization
+ggplot(prize_counts, aes(x = factor(laureates_per_prize), y = n_prizes)) +
+  geom_col(fill = "#6a9fb5", width = 0.6) +
+  geom_text(aes(label = n_prizes), vjust = -0.3, size = 4, color = "black") +
+  labs(
+    title = "How Many Laureates Share a Nobel Prize?",
+    subtitle = "Distribution of Nobel Prizes by number of recipients",
+    x = "Number of Laureates per Prize",
+    y = "Number of Prizes",
+    caption = "Source: Nobel Prize API"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(margin = margin(b = 15)),
+    plot.caption = element_text(color = "gray40")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+```
+
+# Conclusion
+
+This exploratory analysis of Nobel Prize data revealed several key patterns. Migration is a notable feature among laureates, with countries like Germany and Russia showing high numbers of individuals awarded under different citizenships. Gender disparities remain evident, especially in Physics and Economics, where male recipients dominate. While the nominal prize amounts have increased significantly over time, inflation-adjusted values show a more stable trajectory. Lastly, most Nobel Prizes are shared between two or three individuals, highlighting the collaborative nature of many achievements.
+
+These findings offer a foundation for deeper investigations into institutional affiliations, age trends, and geographic representation in future work.
+
+
+
