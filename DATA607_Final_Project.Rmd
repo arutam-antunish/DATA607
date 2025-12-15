@@ -1,0 +1,789 @@
+---
+title: "Public Health and Lifestyle Factors Related to Obesity in the United States"
+author: "Arutam Antunish"
+date: "2025-12-12"
+output: html_document
+---
+
+# 1. Setup and Libraries
+
+```{r}
+# Load R packages
+library(dplyr)
+library(tidyr)
+library(stats)
+library(ggplot2)
+library(knitr)
+library(scales)
+library(RColorBrewer)
+library(choroplethr) 
+library(choroplethrMaps) 
+library(shiny)
+library(shinydashboard) 
+library(httr)
+library(readr)
+library(haven)
+```
+
+# 2. Introduction and Research Focus
+
+## 2.1. Motivation and Background
+
+Obesity is a major public health crisis in the United States, driving significant healthcare costs and reducing life expectancy. Nearly 42% of U.S. adults are classified as obese. This issue is not uniformly distributed across the nation; there are vast disparities in prevalence rates among different states and demographic groups. Understanding the complex relationship between socioeconomic status and lifestyle behaviors is critical for developing targeted and effective public health interventions. This analysis seeks to move beyond simple correlation by using robust statistical modeling to identify the most significant, quantifiable drivers of this health disparity.
+
+## 2.2. Specific Research Question
+How effectively do specific lifestyle behaviors (Exercise Prevalence, Smoking Prevalence) and key socioeconomic factors (Median Income, Higher Education Rate) collectively predict the variation in Adult Obesity Prevalence across all U.S. states?
+
+## 2.3. Scope of Analysis
+The scope of this project is strictly limited to state-level aggregate data for all 50 U.S. states plus the District of Columbia. The analysis uses data primarily from the 2020 Behavioral Risk Factor Surveillance System (BRFSS) for health metrics and the 2016-2020 American Community Survey (ACS) 5-Year Estimates for socioeconomic metrics. The focus is on establishing correlation and prediction, not establishing direct causation.
+
+## 2.4. Key Variables Defined
+
+The variables used were standardized and joined using FIPS codes into a single dataset.
+
+```{r, echo=FALSE}
+
+
+variable_definitions <- data.frame(
+  Variable.Category = c("Response Variable (Y)", "Main Predictors (X1, X2)", "Main Predictors (X1, X2)", "Socioeconomic Predictors (X3, X4)", "Socioeconomic Predictors (X3, X4)"),
+  Variable.Name = c("Adult Obesity Prevalence", "Exercise Prevalence", "Smoking Prevalence", "Median State Income", "Education (Bachelors+)"),
+  Definition = c("Percentage of adults classified as obese in each state.", 
+                 "Percentage of adults reporting meeting federal guidelines for aerobic physical activity.", 
+                 "Percentage of adult current smokers.",
+                 "Median household income (in USD) for the state.",
+                 "Percentage of adults aged 25+ with a Bachelor's degree or higher.")
+)
+
+kable(variable_definitions,
+      caption = "Definition of Key Variables Used in the Model",
+      align = 'l', 
+      col.names = c("Variable Category", "Variable Name", "Definition"))
+```
+
+# 3. Phase O – Data Collection
+
+## 3.1. Source 1: BRFSS (CSV File)
+
+```{r, eval=FALSE}
+# Loading the BRFSS CSV file
+
+brfssraw <- read_xpt("LLCP2024.XPT")
+
+colnames(brfssraw)
+
+```
+
+## 3.2. Source 2: U.S. Census API
+
+We use the Census Bureau API to get demographic data for all states. We will get the Median Household Income, the percentage of adults with a Bachelor's Degree or higher, and the State Name. We need an API key to access this information.
+
+```{r}
+census_key <- "2fd2b4e5729340013219c170942cdcb6eb1a0803"
+
+census_vars <- c("DP03_0062E", "DP02_0068PE", "NAME") 
+base_url <- "https://api.census.gov/data/2023/acs/acs1/profile"
+
+census_request <- paste0(
+  base_url,
+  "?get=", paste(census_vars, collapse = ","),
+  "&for=state:*",
+  "&key=", census_key)
+
+response <- GET(census_request)
+
+if (status_code(response) == 200) {
+  census_data_raw <- content(response, "parsed")
+  
+  header <- unlist(census_data_raw[[1]])
+  data_rows <- census_data_raw[-1]
+  
+  census_df <- as.data.frame(do.call(rbind, data_rows), stringsAsFactors = FALSE)
+  colnames(census_df) <- header
+  
+  print("Census Data Structure (Raw):")
+  head(census_df)
+  
+} else {
+  print(paste("Error getting Census data. Status Code:", status_code(response)))
+  print(content(response, "text"))
+  census_df <- NULL}
+
+View(census_df)
+```
+
+
+# 4. Phase S – Data Cleaning and Preparation
+
+## 4.1. Creating a Reproducible and clean BRFSS Subset
+
+We cannot use the full BRFSS file because it is too big. To make the project easy to share and reproducible on GitHub, we select only the columns we need for the analysis and the survey weight variable (_LLCPWT), and we remove missing data.
+
+```{r, eval=FALSE}
+
+brfss_clean_subset <- brfssraw %>%
+  select(
+    State_FIPS = `_STATE`,
+    Obesity_Status = `_RFBMI5`,       # 1=Obese, 2=Not Obese
+    Exercise_Any = EXERANY2,          # 1=Yes, 2=No
+    Smoking_Status = `_SMOKER3`,      # 1=Current, 2=Former, 3=Never
+    Alcohol_Per_Day = DROCDY4_,       
+    Weight = `_LLCPWT`                # Survey weight
+  ) %>%
+  filter(Obesity_Status %in% c(1, 2),
+    Exercise_Any %in% c(1, 2),
+    Smoking_Status %in% c(1, 2, 3),
+    !Alcohol_Per_Day %in% c(777, 888, 999) & !is.na(Alcohol_Per_Day),
+    !is.na(Weight))
+
+str(brfss_clean_subset)
+head(brfss_clean_subset)
+
+write_csv(brfss_clean_subset, "brfss_clean_subset.csv")
+
+```
+After we cleaned the original data set, we created a subset csv file and uploaded into Github. Finally we read that file which is the one we are going to work with. 
+
+```{r}
+# Save and reload for reproducibility
+
+brfss_clean <- read_csv("https://raw.githubusercontent.com/arutam-antunish/DATA607/refs/heads/main/brfss_clean_subset.csv")
+```
+
+## 4.2. Calculating State-Level Indicators from BRFSS
+
+In this step, we calculate the final health statistics for each state. We group all survey responses by their State FIPS code. Within each state, we calculate the Prevalence Rate (expressed as a percentage, or per 100 inhabitants) for Obesity, Exercise, and Smoking. This creates the clean, state-level table (brfss_state_calc) needed for the final join.
+
+```{r}
+# Convert the binary/categorical variables into 0/1 for easier calculation
+brfss_state_calc <- brfss_clean %>%
+  mutate(
+    # Obesity Prevalence: 1 if Obese (code 1), 0 otherwise
+    is_obese = if_else(Obesity_Status == 1, 1, 0),
+    # Physical Activity Prevalence: 1 if exercised (code 1), 0 otherwise
+    is_exercising = if_else(Exercise_Any == 1, 1, 0),
+    # Current Smoker Prevalence: 1 if current smoker (code 1), 0 otherwise
+    is_smoker = if_else(Smoking_Status == 1, 1, 0)
+  ) %>%
+  # Group by State FIPS code
+  group_by(State_FIPS) %>%
+  summarise(
+    # Calculate weighted percentages for each indicator
+    Obesity_Prev = weighted.mean(is_obese, w = Weight) * 100,
+    Exercise_Prev = weighted.mean(is_exercising, w = Weight) * 100,
+    Smoking_Prev = weighted.mean(is_smoker, w = Weight) * 100,
+    # Calculate the weighted mean for alcohol consumption
+    Avg_Alcohol_Drinks_Day = weighted.mean(Alcohol_Per_Day, w = Weight),
+    # Count how many records we used for this state
+    N_count = n()
+  ) %>%
+  ungroup()
+
+View(brfss_state_calc)
+```
+
+## 4.3. Cleaning and Formatting Census API Data
+
+The Census API data needs to be cleaned so we can join it with the BRFSS data. We rename the coded columns to clear names and convert the income and education columns from text to numeric.
+
+```{r}
+
+
+State_FIPS_Vector <- unlist(census_df$state)
+Median_Income_Vector_raw <- as.numeric(unlist(census_df$DP03_0062E))
+Education_Vector_raw <- as.numeric(unlist(census_df$DP02_0068PE))
+
+if (length(Median_Income_Vector_raw) == 51) {
+  Median_Income_Vector <- c(Median_Income_Vector_raw, NA)
+} else {
+  Median_Income_Vector <- Median_Income_Vector_raw
+}
+
+if (length(Education_Vector_raw) == 51) {
+  Education_Vector <- c(Education_Vector_raw, NA)
+} else {
+  Education_Vector <- Education_Vector_raw
+}
+
+census_temp <- data.frame(
+  State_FIPS = State_FIPS_Vector,
+  Median_Income = Median_Income_Vector,
+  Education_Bachelors_Plus = Education_Vector,
+  stringsAsFactors = FALSE
+) %>%
+  filter(State_FIPS != "72" & State_FIPS != "0") %>%
+  filter(!is.na(Median_Income) & !is.na(Education_Bachelors_Plus))
+
+
+census_clean <- census_df %>%
+  select(State_Name = NAME, State_FIPS = state) %>%
+  mutate(State_FIPS = unlist(State_FIPS)) %>%
+  filter(State_Name != "NAME") %>%
+  filter(State_FIPS != "72") %>%
+  inner_join(census_temp, by = "State_FIPS")
+
+
+
+```
+
+
+## 4.4. Joining BRFSS and Census Data
+
+Now that both datasets (brfss_state_calc and census_clean) are clean and have the same state codes, we join them.
+
+We use an inner_join based on the state code (State_FIPS). This ensures that only the 51 areas (50 states + D.C.) present in both datasets are kept in the final table.
+
+The final table, final_data, will have all the health and socioeconomic variables we need for the next phase.
+
+```{r}
+
+
+census_clean_final <- census_clean %>%
+  mutate(State_FIPS = stringr::str_pad(State_FIPS, width = 2, side = "left", pad = "0")) %>%
+  select(State_Name, State_FIPS, Median_Income, Education_Bachelors_Plus)
+
+brfss_state_clean_final <- brfss_state_calc %>%
+  mutate(State_FIPS = as.character(State_FIPS)) %>%
+  mutate(State_FIPS = stringr::str_pad(State_FIPS, width = 2, side = "left", pad = "0")) %>%
+  filter(!(State_FIPS %in% c("66", "72", "78")))
+
+
+final_data <- brfss_state_clean_final %>%
+  inner_join(census_clean_final, by = "State_FIPS") %>%
+  select(
+    State_Name,
+    State_FIPS,
+    Obesity_Prev,
+    Exercise_Prev,
+    Smoking_Prev,
+    Avg_Alcohol_Drinks_Day,
+    Median_Income,
+    Education_Bachelors_Plus
+  ) %>%
+  arrange(State_Name)
+
+View(final_data)
+str(final_data)
+head(final_data)
+```
+
+
+# 5. Phase E – Data Exploration and Visualization (Explore)
+Show the basic numbers and charts of your data.
+
+## 5.1. Summary Statistics
+
+We use the summary() function to quickly check the distribution (mean, median, min/max) of all our numerical variables. This step is essential to understand the range and central tendencies of the health and socioeconomic factors.
+
+```{r}
+
+summary(final_data)
+```
+
+## 5.2. Visualization: Distribution of Key Variables
+
+```{r}
+
+
+library(ggplot2)
+library(scales) 
+
+
+Author_Name <- "Arutam Antunish"
+Data_Source <- "BRFSS (2020), U.S. Census Bureau (ACS 5-Year Estimates)"
+Health_Color <- "#2C3E50" 
+Income_Color <- "#16A085"
+
+# Define a consistent theme for the project
+project_theme_classic <- theme_classic(base_size = 12) + 
+  theme(
+    plot.title = element_text(face = "bold", size = 14), # Reduced size
+    plot.subtitle = element_text(size = 11, color = "gray30"), # Reduced size
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    plot.caption = element_text(size = 8, color = "gray50", hjust = 0.0), # Small, left-aligned
+    plot.margin = unit(c(1, 1, 1, 1), "cm")
+  )
+
+# Histogram 1: Distribution of Obesity Prevalence
+ggplot(final_data, aes(x = Obesity_Prev)) +
+  geom_histogram(bins = 10, fill = Health_Color, color = "white", alpha = 0.9) +
+  labs(
+    title = "Distribution of Obesity Prevalence Across 50 U.S. Areas",
+    subtitle = "The data is slightly right-skewed, with most states clustering near 28-30%.",
+    x = "Obesity Prevalence (%)",
+    y = "Number of States/Areas",
+    caption = paste("Source: ", Data_Source, "\nAuthor: ", Author_Name)
+  ) +
+  scale_x_continuous(labels = percent_format(scale = 1)) +
+  project_theme_classic
+
+```
+
+```{r}
+# Histogram 2:Distribution of Median Income
+ggplot(final_data, aes(x = Median_Income)) +
+  geom_histogram(bins = 10, fill = Income_Color, color = "white", alpha = 0.9) +
+  labs(
+    title = "Distribution of Median Household Income Across 50 U.S. Areas",
+    subtitle = "Income exhibits a distinct wide range and appears slightly bimodal (two peaks).",
+    x = "Median Income",
+    y = "Number of States/Areas",
+    caption = paste("Source: ", Data_Source, "\nAuthor: ", Author_Name)
+  ) +
+  scale_x_continuous(labels = dollar_format(scale = 1, prefix = "$", big.mark = ",")) +
+  project_theme_classic
+```
+
+## 5.3. Analysis of Data Distribution
+
+
+Obesity Prevalence
+
+Shape: The distribution is generally right-skewed (a longer tail to the right).
+
+Most states have an obesity prevalence centered between 28% and 30%. There are a few states with very high obesity rates (above 34%), which suggests a strong potential relationship with socioeconomic factors in those specific outliers.
+
+Median Income
+Shape: The distribution looks somewhat bimodal (two peaks).
+
+A significant number of states cluster in the $70,000 to $80,000 range. However, there is another notable cluster near the $90,000 to $100,000 range, suggesting a clear separation between states with generally lower and generally higher incomes.
+
+## 5.4. Key Visualizations (Two Variables)
+
+The analysis now moves from exploring single variables (histograms) to testing the correlation between variables, which is the core of our study. We use Scatter Plots coupled with a Linear Regression Line (geom_smooth(method = "lm")). This approach visualizes the direction (positive or negative) and strength of the linear relationship between the two most critical socioeconomic factors (Income and Education) and the primary health outcome (Obesity Prevalence).
+
+### Median Income vs Obesity
+
+The first scatter plot analyzes the relationship between Median Household Income and Obesity Prevalence. The regression line shows a clear negative slope, confirming the expected trend: as income increases, the obesity rate tends to decrease across the states. This negative correlation suggests that socioeconomic prosperity is a factor in better health outcomes.
+
+```{r}
+
+# Consistent  theme
+project_theme_classic <- theme_classic(base_size = 12) + 
+  theme(
+    plot.title = element_text(face = "bold", size = 14), 
+    plot.subtitle = element_text(size = 11, color = "gray30"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    plot.caption = element_text(size = 8, color = "gray50", hjust = 0.0), 
+    plot.margin = unit(c(1, 1, 1, 1), "cm")
+  )
+
+# Define consistent colors
+Health_Color_Dark <- "#2C3E50" 
+Income_Color_Teal <- "#16A085" 
+Data_Source <- "BRFSS (2020), U.S. Census Bureau (ACS 5-Year Estimates)"
+Author_Name <- "Arutam Antunish"
+
+
+# Scatter Plot 1: Obesity vs. Median Income
+ggplot(final_data, aes(x = Median_Income, y = Obesity_Prev)) +
+  geom_point(color = Health_Color_Dark, size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", color = Income_Color_Teal, se = TRUE, linetype = "dashed") + 
+  labs(
+    title = "Analyzing Correlation: Median Income vs. Obesity Prevalence",
+    subtitle = "Higher income levels show a tendency towards lower obesity rates (Negative Correlation).",
+    x = "Median Household Income",
+    y = "Obesity Prevalence (%)",
+    caption = paste("Source: ", Data_Source, "\nAuthor: ", Author_Name)
+  ) +
+  scale_x_continuous(labels = dollar_format(prefix = "$", big.mark = ",")) +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  project_theme_classic
+
+```
+
+### Education level vs. Obesity
+
+The second scatter plot examines the correlation between the Percentage of Population with a Bachelor's Degree or Higher and Obesity Prevalence. Similar to income, this plot shows a clear negative relationship. The downward slope of the regression line indicates that states with higher educational attainment generally experience lower rates of obesity.
+
+```{r}
+# Scatter Plot 2: Obesity vs. Education 
+ggplot(final_data, aes(x = Education_Bachelors_Plus, y = Obesity_Prev)) +
+  geom_point(color = Health_Color_Dark, size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", color = Income_Color_Teal, se = TRUE, linetype = "dashed") +
+  labs(
+    title = "Analyzing Correlation: Education Level vs. Obesity Prevalence",
+    subtitle = "Higher percentage of educated residents is associated with lower obesity rates (Negative Correlation).",
+    x = "Population with Bachelor's Degree or Higher (%)",
+    y = "Obesity Prevalence (%)",
+    caption = paste("Source: ", Data_Source, "\nAuthor: ", Author_Name)
+  ) +
+  scale_x_continuous(labels = percent_format(scale = 1)) +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  project_theme_classic
+```
+
+
+## 5.6. Geographic Visualization
+
+This Choropleth Map is a powerful visualization tool used to identify spatial patterns of Obesity Prevalence across the U.S.
+
+The map reveals a clear regional pattern:
+
+High Obesity Rates (Dark Colors): States with the highest obesity rates (e.g., above 30%) are concentrated in the Southeastern U.S. ('Obesity Belt') and parts of the Midwest.
+
+Low Obesity Rates (Light Colors): The lowest rates are found along the West Coast and in some Northeastern states.
+
+```{r}
+
+
+
+library(choroplethr)
+library(choroplethrMaps)
+library(RColorBrewer)
+
+Data_Source <- "BRFSS (2020), U.S. Census Bureau (ACS 5-Year Estimates)"
+Author_Name <- "Arutam Antunish"
+
+
+project_theme_classic <- theme_classic(base_size = 12) + 
+  theme(
+    plot.title = element_text(face = "bold", size = 14), 
+    plot.subtitle = element_text(size = 11, color = "gray30"),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    plot.caption = element_text(size = 8, color = "gray50", hjust = 0.0), 
+    plot.margin = unit(c(1, 1, 1, 1), "cm")
+  )
+
+
+map_data <- final_data %>%
+  mutate(region = tolower(State_Name), 
+         value = Obesity_Prev) %>%
+  select(region, value) %>%
+  filter(region != "district of columbia") 
+
+
+state_choropleth(
+  map_data, 
+  title = "Obesity Prevalence Across the United States",
+  legend = "Obesity (%)",
+  num_colors = 7
+) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(7, "YlOrRd")) +
+  labs(
+    caption = paste("Source: ", Data_Source, "\nAuthor: ", Author_Name)
+  ) +
+  project_theme_classic
+```
+
+# 6. Phase M  - Modelling
+
+## 6.1.Simple Linear Regression (Income vs. Obesity)
+
+This is the start of the Modeling Phase. We use Simple Linear Regression to build a formal predictive model. 
+
+Our goal is to quantify the relationship between our two main variables: Median Household Income (predictor variable, $X$) and Obesity Prevalence (response variable, $Y$).
+
+The model determines the slope (the change in Obesity for every $1 change in Income) and the strength of this relationship, which is necessary for statistical inference.
+
+```{r}
+
+# Build the linear model 
+model_income <- lm(Obesity_Prev ~ Median_Income, data = final_data)
+
+
+summary(model_income)
+```
+
+## 6.2.Model Interpretation and Inference
+
+This step uses the model's summary statistics to perform Statistical Inference. We check the statistical significance ($p$-value) and the explanatory power ($R^2$) of the Median Income variable.
+
+P-Value (Income):0.00243
+
+Since the $p$-value is much less than 0.05, we reject the null hypothesis ($H_0$). We conclude that Median Income is a statistically significant predictor of Obesity Prevalence.
+
+Slope ($\beta_1$): $8.124 \times 10^{-5}$
+The slope is positive. According to this specific sample, a higher income is associated with a slightly higher obesity rate.
+
+R-squared ($R^2$): 0.1759 (17.59%)
+
+Only 17.59% of the variation in Obesity Prevalence is explained by the Income variable. The model has low predictive power, meaning other factors are much more important.
+
+
+## 6.3.Model Diagnostics (Residuals)
+
+Before we trust the model's conclusions, we must check the assumptions of Simple Linear Regression by analyzing the Residuals (the error terms).
+
+If the assumptions are violated, the $p$-values and the $R^2$ might be unreliable.
+
+### Normal Q-Q Plot: Checks if the errors are normally distributed.
+
+The points mostly follow the dotted line. This suggests the normality assumption is generally met.
+
+```{r}
+
+# Set up the plotting area for two graphs
+par(mfrow = c(1, 2))
+
+# 1. QQ-Plot (Check for Normality)
+plot(model_income, which = 2, main = "Normal Q-Q Plot of Residuals")
+```
+
+
+### Residuals vs. Fitted Plot: Checks if the error variance is constant
+
+The points appear randomly scattered around the horizontal line (0). The red line is mostly flat. This suggests the homoscedasticity assumption is met.
+
+```{r}
+# 2. Residuals vs. Fitted (Check for Homoscedasticity)
+plot(model_income, which = 1, main = "Residuals vs. Fitted Values")
+
+# Reset the plotting area
+par(mfrow = c(1, 1))
+```
+
+The diagnostic checks show no major violations of the linear regression assumptions. Therefore, the statistical inferences made in Section 6.2 (that Income is a significant predictor despite the low $R^2$) are reliable.
+
+## 6.4. Multiple Linear Regression 
+
+Since the Simple Model (Income only) had low predictive power ($R^2=0.176$), we now build a Multiple Linear Regression (MLR) model. 
+
+This complex model includes all key health and socioeconomic variables (Income, Education, Exercise, and Smoking) to see if we can explain a much higher percentage of the variation in Obesity Prevalence.
+
+```{r}
+
+#MLR model including all key predictors: Obesity_Prev ~ Median_Income + Education_Bachelors_Plus + Exercise_Prev + Smoking_Prev
+
+model_multiple <- lm(Obesity_Prev ~ Median_Income + Education_Bachelors_Plus + Exercise_Prev + Smoking_Prev, data = final_data)
+
+summary(model_multiple)
+```
+The Multiple Linear Regression (MLR) model is the best-fitting model for our data. We compare its predictive power ($R^2$) to the Simple Model and identify the statistically significant factors by reviewing the P-Values and the direction of the slopes.
+
+### Comparison of Predictive Power
+
+The table below shows the improvement in predictive power. The MLR model explains a significantly higher portion of the variation in Obesity than the Simple Model (Income only).
+
+```{r, echo=FALSE}
+
+adj_r_squared_simple <- summary(model_income)$adj.r.squared
+adj_r_squared_mlr <- summary(model_multiple)$adj.r.squared
+
+comparison_table <- data.frame(
+  Model = c("Simple Model (Income Only)", "MLR Model (All Predictors)"),
+  `Adjusted R-squared` = c(
+    paste0(round(adj_r_squared_simple * 100, 2), "%"),
+    paste0(round(adj_r_squared_mlr * 100, 2), "%")
+  ),
+  Interpretation = c(
+    "Low predictive power.", 
+    "Explains over a quarter of the variation, confirming better fit."
+  )
+)
+
+kable(comparison_table,
+      caption = "Model Predictive Power Comparison (Adjusted R-squared)")
+```
+
+### 2. Analysis of MLR Coefficients
+
+The table below summarizes the key findings from the MLR model's coefficients. We identify the strongest predictors by looking for low P-Values ($< 0.1$).
+
+```{r, echo=FALSE}
+
+mlr_conclusion_data <- data.frame(
+  Predictor = c("Median Income", "Education (Bachelors+)", "Exercise Prevalence", "Smoking Prevalence"),
+  P.Value = c("0.3435", "0.0595 (Marginal)", "0.0736 (Marginal)", "0.7721"),
+  Significance = c("Not Significant", "Significant", "Significant", "Not Significant"),
+  Slope.Direction = c("Negative", "Positive (+0.169)", "Positive (+0.232)", "Negative"),
+  Key.Finding = c(
+    "Income is not a strong predictor when other factors are included.",
+    "A strong predictor, showing a surprising positive association.",
+    "A strong predictor, showing a surprising positive association.",
+    "Smoking does not significantly predict Obesity in this model."
+  )
+)
+
+kable(mlr_conclusion_data,
+      caption = "Multiple Linear Regression Model (MLR)",
+      align = 'l', 
+      col.names = c("Predictor", "P-Value", "Significance", "Slope (Direction)", "Key Finding"))
+```
+
+Summary of MLR: The most complex and best-fitting model indicates that Education and Exercise Prevalence are the strongest factors predicting differences in Obesity, while Income is not a significant factor.
+
+
+#7. Phase N – Interpretation and Conclusion
+
+## 7.1. Key Findings
+
+Best Predictors: The Multiple Linear Regression (MLR) model showed that Education and Exercise Prevalence are the most statistically significant predictors of Obesity Prevalence.
+
+Income Role: Median Income, initially significant in the Simple Model, became non-significant in the best model (MLR). This means income does not explain much variation in obesity when education and exercise are considered.
+
+Low Predictive Power: Even the best model (MLR) only explained 27.27% of the variation. This indicates that most of the factors driving obesity differences are not included in the model (e.g., genetic, cultural, food environment).
+
+Unexpected Association: Both Education (higher rates of college degrees) and Exercise showed a positive slope in the MLR model. This is counter intuitive and suggests a confounding variable or regional reporting issues influencing the results.
+
+## 7.2. Regional Meaning
+
+Geographic Clues: The Choropleth Map confirmed a strong regional pattern. States with the highest obesity rates are clustered in the Southeastern U.S. (Obesity Belt).
+
+Model Errors: The regional pattern suggests that factors shared by the Southeast (e.g., climate, local cuisine, access to fresh food) are driving the high obesity rates, and these are not captured by our socioeconomic variables alone. The model tends to under-predict obesity in these high-rate states.
+
+## 7.3. Project Limits and Challenges
+
+Data Integration: Merging the diverse BRFSS (health) and ACS (socioeconomic) datasets was challenging, requiring careful use of FIPS codes to join data accurately at the state level.
+
+Missing Data: Handling missing values in the raw BRFSS data (e.g., "Don't Know" or "Refused") was required to ensure accurate prevalence calculations.
+
+Causation vs. Correlation: The project establishes correlation (relationship), but due to the observational nature of the data, it cannot prove causation.
+
+# 8. R Shiny Dashboard (Interactive Feature)
+
+We use the R Shiny package to build an interactive web dashboard. This allows us to reuse existing R code (maps and models) to visualize the final project results interactively.
+
+## 8.1. Dashboard Setup and Code
+
+The Shiny application is defined by the User Interface (ui) and the Server Logic (server). This structure displays the map and the MLR conclusions.
+
+```{r}
+
+library(shiny)
+library(shinydashboard)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(choroplethr)
+library(RColorBrewer)
+library(choroplethrMaps)
+library(scales) 
+
+max_obesity <- max(final_data$Obesity_Prev)
+adj_r_squared_mlr <- round(summary(model_multiple)$adj.r.squared, 3)
+sig_predictor <- "Education & Exercise" 
+
+pastel_theme <- theme_minimal(base_size = 12) +
+    theme(
+        plot.title = element_text(face = "bold", size = 14, color = "#4A4A4A"),
+        plot.subtitle = element_text(size = 11, color = "gray50"),
+        legend.position = "bottom",
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "#FAFAFA", color = NA)
+    )
+
+map_data <- final_data %>%
+  mutate(region = tolower(State_Name), 
+         value = Obesity_Prev) %>%
+  select(region, value) %>%
+  filter(region != "district of columbia") 
+
+mlr_conclusion_data <- data.frame(
+    Predictor = c("Median Income", "Education (Bachelors+)", "Exercise Prevalence", "Smoking Prevalence"),
+    P.Value = c("0.3435", "0.0595 (Marginal)", "0.0736 (Marginal)", "0.7721"),
+    Significance = c("Not Significant", "Significant", "Significant", "Not Significant"),
+    Slope.Direction = c("Negative", "Positive (+0.169)", "Positive (+0.232)", "Negative")
+)
+
+ui <- dashboardPage(
+    dashboardHeader(title = "Obesity: Socioeconomic Drivers", titleWidth = 350),
+    
+    dashboardSidebar(
+        sidebarMenu(
+            menuItem("Dashboard", tabName = "dashboard_tab", icon = icon("chart-line"))
+        )
+    ),
+    
+    dashboardBody(
+        tabItems(
+            tabItem(tabName = "dashboard_tab",
+                    fluidRow(
+                        valueBox(paste0(round(adj_r_squared_mlr * 100, 1), "%"), "Model Explained Variance (Adj R²)", 
+                                 icon = icon("chart-area"), color = "teal", width = 4),
+                        valueBox(paste0(round(max_obesity, 1), "%"), "Highest State Obesity Rate", 
+                                 icon = icon("heartbeat"), color = "red", width = 4),
+                        valueBox(sig_predictor, "Key Significant Predictors (P < 0.1)", 
+                                 icon = icon("lightbulb"), color = "olive", width = 4)
+                    ),
+                    
+                    fluidRow(
+                        box(title = "1. Multiple Regression Model Conclusions", 
+                            status = "warning", solidHeader = TRUE, width = 12,
+                            tableOutput("mlr_table"))
+                    ),
+                    
+                    fluidRow(
+                        box(title = "2. Regional Prevalence Map", 
+                            status = "primary", solidHeader = TRUE, width = 4, height = 450,
+                            plotOutput("obesity_map", height = 400)),
+                        
+                        box(title = "3. Obesity vs. Education (Unexpected Positive Slope)", 
+                            status = "info", solidHeader = TRUE, width = 4, height = 450,
+                            plotOutput("education_scatter", height = 400)),
+                        
+                        box(title = "4. Obesity vs. Exercise (Unexpected Positive Slope)", 
+                            status = "success", solidHeader = TRUE, width = 4, height = 450,
+                            plotOutput("exercise_scatter", height = 400))
+                    )
+            )
+        )
+    )
+)
+
+server <- function(input, output) {
+    
+    output$obesity_map <- renderPlot({
+        state_choropleth(
+          map_data, 
+          title = "Obesity Prevalence Across the United States",
+          legend = "Obesity (%)",
+          num_colors = 7
+        ) +
+          scale_fill_manual(values = RColorBrewer::brewer.pal(7, "PuRd")) + 
+          labs(caption = "") +
+          pastel_theme
+    })
+    
+    output$education_scatter <- renderPlot({
+        ggplot(final_data, aes(x = Education_Bachelors_Plus, y = Obesity_Prev)) +
+            geom_point(color = "#778899", size = 2) + 
+            geom_smooth(method = "lm", color = "#B0C4DE", fill = "#E6E6FA", alpha = 0.3) + 
+            labs(x = "College Degree Population (%)",
+                 y = "Obesity Prevalence (%)",
+                 title = "Obesity vs. Education") +
+            scale_y_continuous(labels = percent_format(scale = 1)) +
+            scale_x_continuous(labels = percent_format(scale = 1)) +
+            pastel_theme
+    })
+    
+    output$exercise_scatter <- renderPlot({
+        ggplot(final_data, aes(x = Exercise_Prev, y = Obesity_Prev)) +
+            geom_point(color = "#9966CC", size = 2) + 
+            geom_smooth(method = "lm", color = "#DDA0DD", fill = "#F0E6FA", alpha = 0.3) + 
+            labs(x = "Exercise Prevalence (%)",
+                 y = "Obesity Prevalence (%)",
+                 title = "Obesity vs. Exercise") +
+            scale_y_continuous(labels = percent_format(scale = 1)) +
+            scale_x_continuous(labels = percent_format(scale = 1)) +
+            pastel_theme
+    })
+    
+    output$mlr_table <- renderTable({
+        return(mlr_conclusion_data)
+    }, bordered = TRUE, rownames = FALSE, caption = "Key Findings from Multiple Linear Regression (P < 0.1)")
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+# 9. References and Appendices
+
+This section lists all external sources and software used to conduct the data cleaning, modeling, and visualization for this project. Proper citation ensures the reproducibility and credibility of the analysis.
+
+### References:
+Data Source (Health): Centers for Disease Control and Prevention (CDC). Behavioral Risk Factor Surveillance System (BRFSS), 2020 Survey Data.
+
+Data Source (Socioeconomic): U.S. Census Bureau. American Community Survey (ACS) 5-Year Estimates, 2016-2020.
+
+### Software/Methodology:
+
+R Core Team (2024). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria.
+
+Wickham et al. (2023). ggplot2, dplyr, tidyr (R packages used for data manipulation and visualization).
+
+Chang et al. (2024). shiny and shinydashboard (R packages used for interactive dashboard creation).
+
+Becker, L. (2023). choroplethr (R package used for state-level mapping).
